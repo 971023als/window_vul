@@ -1,3 +1,13 @@
+json = {
+        "분류": "계정관리",
+        "코드": "W-07",
+        "위험도": "상",
+        "진단 항목": "Everyone 사용 권한을 익명 사용자에게 적용",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "Everyone 사용 권한을 익명 사용자에게 적용"
+    }
+
 # Check for Administrator privileges
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "관리자 권한을 요청 중입니다..."

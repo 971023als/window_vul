@@ -1,3 +1,13 @@
+json = {
+        "분류": "계정관리",
+        "코드": "W-02",
+        "위험도": "상",
+        "진단 항목": "Guest 계정 상태",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "Guest 계정 상태 변경"
+    }
+
 # 관리자 권한 확인 및 요청
 function Test-Admin {
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())

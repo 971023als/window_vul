@@ -1,3 +1,13 @@
+json = {
+        "분류": "계정관리",
+        "코드": "W-04",
+        "위험도": "상",
+        "진단 항목": "계정 잠금 임계값 설정",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "계정 잠금 임계값 설정"
+    }
+
 # 관리자 권한 확인 및 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "관리자 권한이 필요합니다..."

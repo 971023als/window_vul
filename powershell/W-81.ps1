@@ -1,3 +1,13 @@
+json = {
+        "분류": "계정관리",
+        "코드": "W-81",
+        "위험도": "상",
+        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
+    }
+
 # 관리자 권한 확인 및 스크립트 초기 설정
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"

@@ -1,3 +1,13 @@
+json = {
+        "분류": "계정관리",
+        "코드": "W-03",
+        "위험도": "상",
+        "진단 항목": "불필요한 계정 제거",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "불필요한 계정 제거"
+    }
+
 # 관리자 권한 확인 및 요청
 function Test-Admin {
     $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())

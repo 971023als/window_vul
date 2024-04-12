@@ -1,3 +1,13 @@
+json = {
+        "분류": "계정관리",
+        "코드": "W-01",
+        "위험도": "상",
+        "진단 항목": "Administrator 계정 이름 바꾸기",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "Administrator 계정 이름 변경"
+    }
+
 # 관리자 권한 확인
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
 {
