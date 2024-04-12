@@ -1,20 +1,20 @@
 $json = @{
-        "분류": "계정관리",
-        "코드": "W-28",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+    Category = "Account Management"
+    Code = "W-28"
+    RiskLevel = "High"
+    DiagnosticItem = "Use of Decryptable Encryption for Password Storage"
+    DiagnosticResult = "Good"  # Assuming good as the default state
+    CurrentStatus = @()
+    Recommendation = "Avoid using decryptable encryption for password storage"
+}
 
-# 관리자 권한 요청
+# Request administrator privileges
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
     exit
 }
 
-# 초기 설정
+# Setup environment and directories
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
@@ -26,43 +26,38 @@ Set-Location -Path $rawDir
 [System.IO.File]::WriteAllText("$rawDir\install_path.txt", (Get-Location).Path)
 systeminfo | Out-File "$rawDir\systeminfo.txt"
 
-# IIS 설정 분석
-Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config" | Out-File "$rawDir\iis_setting.txt"
-Get-Content "$rawDir\iis_setting.txt" | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-$line = Get-Content "$rawDir\iis_path1.txt" -Raw
-Set-Content -Path "$rawDir\line.txt" -Value $line
-1..5 | ForEach-Object {
-    Get-Content "$rawDir\line.txt" | ForEach-Object { $_ -split '\*'} | Select-Object -Index ($_-1) | Out-File "$rawDir\path$_.txt"
-}
-Get-Content "$env:WinDir\System32\Inetsrv\MetaBase.xml" | Out-File "$rawDir\iis_setting.txt"
+# Analyze IIS configuration
+$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
+$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
 
-# W-28 검사
+# Check for shortcut files in critical IIS paths
 $serviceStatus = Get-Service W3SVC -ErrorAction SilentlyContinue
 if ($serviceStatus.Status -eq 'Running') {
-    $pathsChecked = $False
+    $shortcutFound = $False
     1..5 | ForEach-Object {
         $path = Get-Content "$rawDir\path$_.txt" -ErrorAction SilentlyContinue
         if (Test-Path $path) {
-            Get-ChildItem -Path $path -Filter "*.lnk" | ForEach-Object {
-                "$path 경로에 단축 파일(*.lnk)이 발견되었습니다" | Out-File "$rawDir\W-28.txt" -Append
-                $pathsChecked = $True
+            $shortcutFiles = Get-ChildItem -Path $path -Filter "*.lnk"
+            if ($shortcutFiles) {
+                $shortcutFound = $True
+                "$path contains shortcut files (*.lnk), posing a security risk." | Out-File "$rawDir\W-28-findings.txt" -Append
             }
         }
     }
-    if ($pathsChecked) {
-        "W-28,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "중요 IIS 경로에 단축 파일이 발견되어 보안 위험이 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        Get-Content "$rawDir\W-28.txt" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+
+    if ($shortcutFound) {
+        $json.CurrentStatus += "Shortcut files found in critical IIS paths, indicating a security risk."
+        $json.DiagnosticResult = "Vulnerable"
     } else {
-        "W-28,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "중요 IIS 경로에 무단 단축 파일이 없습니다. 시스템이 보안 표준을 준수합니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+        $json.CurrentStatus += "No unauthorized shortcut files found in critical IIS paths, system complies with security standards."
     }
 } else {
-    "W-28,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "World Wide Web Publishing Service가 실행되지 않고 있습니다. 단축 파일을 확인할 필요가 없습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.CurrentStatus += "World Wide Web Publishing Service is not running, no need to check for shortcut files."
 }
 
-# 결과 데이터 캡처
-"--------------------------------------W-28-------------------------------------" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-Get-Content "$rawDir\W-28.txt" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-"-------------------------------------------------------------------------------" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# Output diagnostic results and capture data
+$json | ConvertTo-Json -Depth 3 | Out-File "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+if (Test-Path "$rawDir\W-28-findings.txt") {
+    Get-Content "$rawDir\W-28-findings.txt" | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt"
+}
