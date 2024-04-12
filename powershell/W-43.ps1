@@ -1,12 +1,13 @@
-json = {
-        "분류": "서비스관리",
-        "코드": "W-43",
-        "위험도": "상",
-        "진단 항목": "최신 서비스팩 적용",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "최신 서비스팩 적용"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "서비스관리"
+    코드 = "W-43"
+    위험도 = "상"
+    진단 항목 = "최신 서비스팩 적용"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "최신 서비스팩 적용"
+}
 
 # 관리자 권한 요청
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -30,24 +31,31 @@ $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# W-43 OS 버전 확인
-Write-Host "------------------------------------------W-43 OS 버전 확인------------------------------------------"
-$systemInfo = Get-Content "$rawDir\systeminfo.txt"
-$osVersion = $systemInfo | Where-Object { $_ -match "OS Version" }
+# OS 버전 및 서비스팩 진단 시작
+Write-Host "------------------------------------------W-43 OS 버전 및 서비스팩 진단 시작------------------------------------------"
+Try {
+    $osInfo = Get-CimInstance Win32_OperatingSystem
+    $osVersion = $osInfo.Version
+    $servicePack = $osInfo.ServicePackMajorVersion
 
-"OS 버전 확인" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-"시스템이 지원하는 OS 버전에 맞게 구성되어 있는지 확인합니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-"조치 방안" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-"필요한 경우 OS 업그레이드를 고려하십시오." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-$osVersion | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-"조치 완료" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-"필요한 경우 OS 업그레이드를 고려하여 보안을 강화하십시오." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+    if ($servicePack -eq 0) {
+        $json.진단 결과 = "취약"
+        $json.현황 += "최신 서비스팩이 적용되지 않았습니다."
+    } else {
+        $json.현황 += "최신 서비스팩이 적용되어 있습니다."
+    }
+}
+Catch {
+    $json.진단 결과 = "오류"
+    $json.현황 += "OS 버전 및 서비스팩 진단 중 오류가 발생했습니다."
+}
 
-Write-Host "-------------------------------------------end------------------------------------------"
+Write-Host "-------------------------------------------진단 종료------------------------------------------"
 
-# 결과 요약
-Write-Host "결과가 C:\Window_$computerName\_result\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
+# 결과 요약 및 저장
+$jsonPath = "$resultDir\W-43_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "결과가 저장되었습니다: $jsonPath"
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
