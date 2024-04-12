@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-55",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "패치관리"
+    코드 = "W-55"
+    위험도 = "상"
+    진단 항목 = "최신 HOT FIX 적용"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "최신 HOT FIX 적용"
+}
 
 # 관리자 권한 요청
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -28,23 +29,22 @@ $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction Ignore
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# 시스템 정보 및 IIS 설정 수집
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-Get-Content "$env:windir\System32\inetsrv\config\applicationHost.config" | Out-File "$rawDir\iis_setting.txt"
-
 # 핫픽스 검사
 $hotfixCheck = Get-HotFix -Id "KB3214628" -ErrorAction SilentlyContinue
 if ($hotfixCheck) {
-    "W-55,O,|" + " Hotfix KB3214628 is installed, which may indicate a vulnerability." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.진단 결과 = "취약"
+    $json.현황 += "핫픽스 KB3214628이 설치되어 있습니다. 이는 취약점을 나타낼 수 있습니다."
 } else {
-    "W-55,C,|" + " Hotfix KB3214628 is not installed, indicating a secure state." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "핫픽스 KB3214628이 설치되어 있지 않습니다. 이는 보안 상태가 안전함을 나타냅니다."
 }
 
-# 결과 요약
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDir\W-55_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
-# 이메일 결과 요약 보내기 (예시, 실제로는 작동하지 않음)
-# Send-MailMessage -To "admin@example.com" -Subject "Security Audit Summary" -Body (Get-Content "$resultDir\security_audit_summary.txt" -Raw) -SmtpServer "smtp.example.com"
+# 결과 요약 및 저장
+Get-Content "$resultDir\W-55_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
 
 Write-Host "Results have been saved to $resultDir\security_audit_summary.txt."
 

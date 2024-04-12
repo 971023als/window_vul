@@ -1,53 +1,45 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-59",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "로그관리"
+    코드 = "W-59"
+    위험도 = "상"
+    진단 항목 = "원격으로 액세스할 수 있는 레지스트리 경로"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "원격으로 액세스할 수 있는 레지스트리 경로 차단"
+}
 
 # 관리자 권한 확인 및 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "Start-Process PowerShell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
+    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
     exit
 }
 
-# 환경 설정
+# 환경 설정 및 디렉터리 초기화
 $computerName = $env:COMPUTERNAME
 $rawDirectory = "C:\Window_${computerName}_raw"
 $resultDirectory = "C:\Window_${computerName}_result"
 
-# 디렉토리 초기화 및 생성
 Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
 
-# 시스템 정보 수집
-secedit /export /cfg "$rawDirectory\Local_Security_Policy.txt"
-systeminfo | Out-File "$rawDirectory\systeminfo.txt"
-
-# IIS 설정 정보 수집
-$applicationHostConfig = "$env:windir\System32\Inetsrv\Config\applicationHost.config"
-If (Test-Path $applicationHostConfig) {
-    Get-Content $applicationHostConfig | Out-File "$rawDirectory\iis_setting.txt"
-}
-
 # Remote Registry 서비스 상태 검사
 $remoteRegistryStatus = Get-Service -Name "RemoteRegistry" -ErrorAction SilentlyContinue
-$resultText = ""
 
 If ($remoteRegistryStatus -and $remoteRegistryStatus.Status -eq 'Running') {
-    $resultText = "W-59,X,|`n정책 설정`nRemote Registry Service가 활성화되어 있는 경우 위험`n주의 사항`nRemote Registry Service가 활성화되어 있으면 위험`n참고 사항`nRemote Registry Service가 활성화되어 있으면 비활성화 필요`n|"
+    $json.진단 결과 = "취약"
+    $json.현황 += "Remote Registry Service가 활성화되어 있으며, 이는 위험합니다."
 } Else {
-    $resultText = "W-59,O,|`n정책 설정`nRemote Registry Service가 비활성화되어 있는 경우 안전`n주의 사항`nRemote Registry Service가 비활성화되어 있으면 안전`n참고 사항`nRemote Registry Service가 비활성화되어 있으면 추가 조치 필요 없음`n|"
+    $json.현황 += "Remote Registry Service가 비활성화되어 있으며, 이는 안전합니다."
 }
 
-# 결과 저장
-$resultText | Out-File -FilePath "$resultDirectory\W-Window-${computerName}-result.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDirectory\W-59_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
-# 결과 요약
-Get-Content -Path "$resultDirectory\W-Window-*" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+# 결과 요약 및 저장
+Get-Content -Path "$resultDirectory\W-59_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
 
 Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
 

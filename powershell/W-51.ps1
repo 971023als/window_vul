@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-51",
-        "위험도": "상",
-        "진단 항목": "Telnet 보안 설정",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "Telnet 보안 설정"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-51"
+    위험도 = "상"
+    진단 항목 = "Telnet 보안 설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "Telnet 보안 설정"
+}
 
 # 관리자 권한 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -29,16 +30,8 @@ $resultDir = "C:\Window_$($computerName)_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
 
-# 시스템 정보 수집
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS 설정 정보 수집
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-
 # Telnet 서비스 보안 설정 검사
 Write-Host "------------------------------------------Telnet Service Security Setting------------------------------------------"
-$telnetRegistryPath = "HKLM\Software\Microsoft\TelnetServer"
 $telnetServiceStatus = Get-Service -Name TlntSvr -ErrorAction SilentlyContinue
 
 If ($telnetServiceStatus -and $telnetServiceStatus.Status -eq 'Running') {
@@ -47,21 +40,29 @@ If ($telnetServiceStatus -and $telnetServiceStatus.Status -eq 'Running') {
         $authenticationMethod = $telnetConfig | Where-Object {$_ -match "Authentication"}
 
         If ($authenticationMethod -match "NTLM" -and $authenticationMethod -notmatch "Password") {
-            "W-51,O,| Telnet service is using secure NTLM authentication method." | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
+            $json.진단 결과 = "양호"
+            $json.현황 += "Telnet 서비스가 안전한 NTLM 인증 방식을 사용하고 있습니다."
         } Else {
-            "W-51,X,| Telnet service is using insecure authentication method, recommend to use NTLM and avoid passwords." | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
+            $json.진단 결과 = "취약"
+            $json.현황 += "Telnet 서비스가 안전하지 않은 인증 방식을 사용하고 있습니다. NTLM을 사용하고 비밀번호를 피하도록 권장됩니다."
         }
     } Catch {
-        "W-51,Error,| Failed to retrieve Telnet service configuration." | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
+        $json.진단 결과 = "오류"
+        $json.현황 += "Telnet 서비스 설정을 검색하는 데 실패했습니다."
     }
 } Else {
-    "W-51,O,| Telnet service is not running or not installed, which is considered secure." | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
+    $json.현황 += "Telnet 서비스가 실행되지 않거나 설치되지 않았으며, 이는 안전으로 간주됩니다."
 }
 
 Write-Host "------------------------------------------End of Telnet Service Security Setting------------------------------------------"
 
-# 결과 요약
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDir\W-51_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+
+# 결과 요약 및 저장
+Get-Content "$resultDir\W-51_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
 
 # 정리 작업
 Remove-Item -Path $rawDir\* -Force

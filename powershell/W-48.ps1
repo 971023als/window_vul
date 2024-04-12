@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-48",
-        "위험도": "상",
-        "진단 항목": "SNMP Access control 설정",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "SNMP Access control 설정"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-48"
+    위험도 = "상"
+    진단 항목 = "SNMP Access control 설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "SNMP Access control 설정"
+}
 
 # 관리자 권한 확인 및 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -29,33 +30,31 @@ $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# W-48 SNMP 허용된 관리자 설정 검사
+# SNMP 허용된 관리자 설정 검사
 Write-Host "------------------------------------------W-48 SNMP 허용된 관리자 설정 검사------------------------------------------"
 $snmpService = Get-Service -Name SNMP -ErrorAction SilentlyContinue
 if ($snmpService.Status -eq "Running") {
     $permittedManagers = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\PermittedManagers"
     if ($permittedManagers -and $permittedManagers.PSObject.Properties.Value) {
-        "W-48,OK,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-        @"
-SNMP 서비스가 실행 중이며 허용된 관리자가 구성되어 있습니다.
-해당 설정은 네트워크 보안을 강화하는 데 도움이 됩니다.
-"@ | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+        $json.진단 결과 = "양호"
+        $json.현황 += "SNMP 서비스가 실행 중이며 허용된 관리자가 구성되어 있습니다. 해당 설정은 네트워크 보안을 강화하는 데 도움이 됩니다."
     } else {
-        "W-48,경고,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-        @"
-SNMP 서비스가 실행 중이지만 허용된 관리자가 명확하게 구성되지 않았습니다.
-SNMP 관리를 위한 보안 조치로 허용된 관리자를 명확하게 설정하는 것이 권장됩니다.
-"@ | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+        $json.진단 결과 = "경고"
+        $json.현황 += "SNMP 서비스가 실행 중이지만 허용된 관리자가 명확하게 구성되지 않았습니다. SNMP 관리를 위한 보안 조치로 허용된 관리자를 명확하게 설정하는 것이 권장됩니다."
     }
 } else {
-    "W-48,정보,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    "SNMP 서비스가 실행되지 않고 있습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "SNMP 서비스가 실행되지 않고 있습니다."
 }
-Write-Host "-------------------------------------------end------------------------------------------"
+Write-Host "-------------------------------------------진단 종료------------------------------------------"
 
-# 결과 요약 및 저장
-Write-Host "결과가 C:\Window_$computerName\_result\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDir\W-48_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+
+# 결과 요약
+Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
+Get-Content "$resultDir\W-48_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
