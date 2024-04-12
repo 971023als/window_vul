@@ -1,12 +1,13 @@
-json = {
-        "분류": "보안관리",
-        "코드": "W-67",
-        "위험도": "상",
-        "진단 항목": "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "보안관리"
+    코드 = "W-67"
+    위험도 = "상"
+    진단 항목 = "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료 정책을 적절히 설정"
+}
 
 # 관리자 권한 확인
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -14,49 +15,32 @@ if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-# 콘솔 창 설정
-$OutputEncoding = [System.Text.Encoding]::GetEncoding(949)
-[Console]::ForegroundColor = 'Green'
-
-# 디렉터리 설정
+# 초기 설정 및 디렉터리 생성
 $computerName = $env:COMPUTERNAME
-$rawPath = "C:\Window_${computerName}_raw"
-$resultPath = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawPath, $resultPath -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawPath, $resultPath | Out-Null
-
-# 로컬 보안 정책 내보내기 및 파일 생성
-secedit /export /cfg "$rawPath\Local_Security_Policy.txt" | Out-Null
-New-Item -ItemType File -Path "$rawPath\compare.txt" | Out-Null
-
-# 시스템 정보 내보내기
-systeminfo | Out-File -FilePath "$rawPath\systeminfo.txt"
-
-# IIS 설정 내보내기
-$applicationHostConfig = Get-Content -Path $env:WinDir\System32\Inetsrv\Config\applicationHost.Config
-$applicationHostConfig | Out-File -FilePath "$rawPath\iis_setting.txt"
-$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File -FilePath "$rawPath\iis_path1.txt"
-
-# MetaBase.xml 내보내기
-Get-Content -Path "C:\WINDOWS\system32\inetsrv\MetaBase.xml" | Out-File -FilePath "$rawPath\iis_setting.txt" -Append
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $rawDir, $resultDir | Out-Null
 
 # 감사 실패 시 시스템 충돌 설정 확인
 $policyValue = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "CrashOnAuditFail"
-$resultFile = "$resultPath\W-Window-$computerName-result.txt"
 
 if ($policyValue.CrashOnAuditFail -eq 0) {
-    "W-67,O,| 감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안에 적합하게 설정되었습니다." | Out-File -FilePath $resultFile
+    $json.현황 += "감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안에 적합하게 설정되었습니다."
 } else {
-    "W-67,X,| 감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안 요구사항에 맞게 설정되지 않았습니다." | Out-File -FilePath $resultFile
+    $json.진단 결과 = "취약"
+    $json.현황 += "감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안 요구사항에 맞게 설정되지 않았습니다."
 }
 
-# 결과 요약
-Get-Content -Path "$resultPath\W-Window-*" | Out-File -FilePath "$resultPath\security_audit_summary.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDir\W-67_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
-# 결과 메시지 출력
-Write-Host "결과가 $resultPath\security_audit_summary.txt 에 저장되었습니다."
+# 결과 요약 및 출력
+Get-Content -Path "$resultDir\W-67_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
+Write-Host "결과가 $resultDir\security_audit_summary.txt 에 저장되었습니다."
 
-# 정리 작업
-Remove-Item -Path "$rawPath\*" -Force
-
+# 정리 작업 및 스크립트 종료
+Remove-Item -Path "$rawDir\*" -Force
 Write-Host "스크립트를 종료합니다."

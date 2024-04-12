@@ -1,57 +1,49 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-75",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
-
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
-{
-    Start-Process PowerShell -Verb RunAs -ArgumentList "-File `"$PSCommandPath`"", "-ExecutionPolicy Bypass"
-    Exit
+# Define the initial JSON structure
+$json = @{
+    분류 = "보안관리"
+    코드 = "W-75"
+    위험도 = "상"
+    진단 항목 = "경고 메시지 설정"
+    진단 결과 = "양호"  # Assuming default value is "Good"
+    현황 = @()
+    대응방안 = "경고 메시지 설정"
 }
 
-# 환경 설정
+# Check for administrator privileges
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -Verb RunAs -ArgumentList "-File `"$PSCommandPath`"", "-ExecutionPolicy Bypass"
+    exit
+}
+
+# Environment setup
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
-# 기존 데이터 삭제 및 디렉토리 생성
+# Clear existing data and create directories
 Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory
+New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# 로컬 보안 정책 내보내기
+# Export local security policy
 secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
 
-# 시스템 정보 수집
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$applicationHostConfig | Select-String "physicalPath", "bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-
-# W-75 검사: 로그인 법적 고지 검증
+# Verify login legal notice settings
 $LegalNoticeCaption = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon").LegalNoticeCaption
 $LegalNoticeText = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon").LegalNoticeText
 
-If ($LegalNoticeCaption -ne $null -or $LegalNoticeText -ne $null) {
-    "W-75,X,| 설정 미완료: 로그인 시 법적 고지가 설정되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt"
-} Else {
-    "W-75,O,| 설정 완료: 로그인 시 법적 고지가 설정되지 않았습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt"
+if ($LegalNoticeCaption -ne $null -or $LegalNoticeText -ne $null) {
+    $json.진단 결과 = "취약"
+    $json.현황 += "로그인 시 법적 고지가 설정되어 있습니다."
+} else {
+    $json.현황 += "로그인 시 법적 고지가 설정되지 않았습니다."
 }
 
-# 결과 요약 생성
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
+# Convert the JSON object to a JSON string and save to a file
+$jsonPath = "$resultDir\W-75_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
-# 이메일 결과 요약 보내기 (예시, 실제 작동 안 함)
-# 이 부분은 실제 환경에 맞게 SMTP 설정이 필요합니다.
+# Cleanup
+Remove-Item "$rawDir\*" -Force
 
-# 정리 작업
-Remove-Item -Path "$rawDir\*" -Force
-
-"스크립트가 완료되었습니다."
+Write-Host "스크립트가 완료되었습니다."

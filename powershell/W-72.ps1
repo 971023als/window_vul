@@ -1,48 +1,49 @@
-json = {
-        "분류": "보안관리",
-        "코드": "W-72",
-        "위험도": "상",
-        "진단 항목": "Dos공격 방어 레지스트리 설정",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "Dos공격 방어 레지스트리 설정"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "보안관리"
+    코드 = "W-72"
+    위험도 = "상"
+    진단 항목 = "Dos공격 방어 레지스트리 설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "Dos공격 방어를 위한 레지스트리 설정 조정"
+}
 
-# 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
-{
-    Start-Process PowerShell -ArgumentList "Start-Process PowerShell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Verb RunAs
+# 관리자 권한 요청 및 환경 설정
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -ArgumentList "Start-Process PowerShell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs"
     Exit
 }
 
-# 환경 설정
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
 # 기존 데이터 삭제 및 디렉터리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force
 New-Item -Path $rawDir, $resultDir -ItemType Directory
 
-# 로컬 보안 정책 내보내기
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+# W-72 검사: Dos공격 방어 관련 레지스트리 설정 검사
+# 예시: SynAttackProtect 레지스트리 키 확인
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+$synAttackProtect = Get-ItemProperty -Path $regPath -Name "SynAttackProtect" -ErrorAction SilentlyContinue
 
-# 시스템 정보 저장
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+if ($synAttackProtect -and $synAttackProtect.SynAttackProtect -eq 1) {
+    $json.현황 += "SynAttackProtect가 활성화되어 DoS 공격 방어 설정이 강화되었습니다."
+} else {
+    $json.진단 결과 = "취약"
+    $json.현황 += "SynAttackProtect가 비활성화되어 있거나, 설정이 적절히 조정되지 않았습니다."
+}
 
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$applicationHostConfig | Select-String "physicalPath", "bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDir\W-72_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
-# W-72 검사: DOS 공격 방지 컴포넌트 활성화 상태 확인
-# PowerShell 스크립트에서 직접 확인하는 명령이 없으므로, 예제로만 처리
-"Windows Server 2012 이상에서 DOS 공격 방지 컴포넌트가 활성화되어 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt"
+# 결과 요약 및 출력
+Get-Content -Path "$resultDir\W-72_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
+Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
 
-# 결과 요약
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
+# 정리 작업 및 스크립트 종료
 Remove-Item "$rawDir\*" -Force
-
-"스크립트를 종료합니다."
+Write-Host "스크립트를 종료합니다."

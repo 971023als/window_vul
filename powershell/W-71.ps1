@@ -1,21 +1,20 @@
-json = {
-        "분류": "보안관리",
-        "코드": "W-71",
-        "위험도": "상",
-        "진단 항목": "디스크볼륨 암호화 설정",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "디스크볼륨 암호화 설정"
-    }
+# JSON 데이터 초기화
+$json = @{
+    분류 = "보안관리"
+    코드 = "W-71"
+    위험도 = "상"
+    진단 항목 = "디스크볼륨 암호화 설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "디스크볼륨 암호화 설정을 통한 데이터 보호 강화"
+}
 
-
-# 관리자 권한 요청
+# 관리자 권한 요청 및 환경 설정
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process PowerShell -ArgumentList "Start-Process PowerShell -ArgumentList '-ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`"' -Verb RunAs" -Verb RunAs
     exit
 }
 
-# 환경 설정
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
@@ -24,26 +23,26 @@ $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# 로컬 보안 정책 내보내기 및 분석 준비
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-New-Item -Path "$rawDir\compare.txt" -ItemType File | Out-Null
+# 디스크볼륨 암호화 설정 검사
+# 예시: BitLocker 사용 여부 확인 (실제 환경에 맞게 조정 필요)
+$bitLockerStatus = Get-BitLockerVolume -MountPoint "C:" | Select-Object -ExpandProperty ProtectionStatus
 
-# 시스템 정보 저장
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+if ($bitLockerStatus -eq 1) {
+    $json.현황 += "C 드라이브가 BitLocker로 암호화되어 있습니다."
+} else {
+    $json.진단 결과 = "취약"
+    $json.현황 += "C 드라이브가 BitLocker로 암호화되어 있지 않습니다."
+}
 
-# IIS 설정 분석
-$iisConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$iisConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-$iisConfig | Select-String -Pattern "physicalPath", "bindingInformation" | Out-File -FilePath "$rawDir\iis_path1.txt"
+# JSON 데이터를 파일로 저장
+$jsonPath = "$resultDir\W-71_${computerName}_diagnostic_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
-# W-71 검사: 데이터 암호화 정책 활성화 상태 확인
-# PowerShell 스크립트에서 직접 정책을 확인하는 명령은 없으므로, 이 부분은 예제로만 제공합니다.
-"Windows Server 2012 이상에서 '데이터 암호화를 요구하는 정책' 설정이 적용되어 있습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt"
+# 결과 요약 및 출력
+Get-Content -Path "$resultDir\W-71_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
+Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
 
-# 결과 요약
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
+# 정리 작업 및 스크립트 종료
 Remove-Item "$rawDir\*" -Force
-
-"스크립트를 종료합니다."
+Write-Host "스크립트를 종료합니다."
