@@ -41,16 +41,19 @@ $servicesToCheck = @("Alerter", "ClipBook", "Messenger", "Simple TCP/IP Services
 $servicesStatus = Get-Service | Where-Object { $servicesToCheck -contains $_.DisplayName } | Select-Object DisplayName, Status
 $servicesStatus | Out-File "$rawDir\W-21.txt"
 
-# 결과 분석 및 출력
+# Update the JSON object based on the service status check
 if ($servicesStatus) {
-    "W-21,X,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "위험 상태: 시스템에 비활성화되어야 하는 서비스가 설치되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    $servicesStatus | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+    $json.현황 += "위험 상태: 시스템에 비활성화되어야 하는 서비스가 설치되어 있습니다."
+    $json.진단결과 = "취약"
+    $servicesStatus | ForEach-Object {
+        $json.현황 += "$($_.DisplayName) 서비스가 $($_.Status) 상태입니다."
+    }
 } else {
-    "W-21,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "정상 상태: 시스템에 비활성화되어야 하는 서비스가 설치되지 않았습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+    $json.현황 += "정상 상태: 시스템에 비활성화되어야 하는 서비스가 설치되지 않았습니다."
+    $json.진단결과 = "양호"
 }
 
-# W-21 데이터 캡처
-$servicesStatus | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
-Get-Service | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+

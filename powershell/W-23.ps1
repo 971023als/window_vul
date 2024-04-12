@@ -36,28 +36,29 @@ Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInfo
     $_.Matches.Value >> "$rawDir\iis_path1.txt"
 }
 
-# W-23 디렉토리 브라우징 체크
-$serviceStatus = Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue
+# Assuming $iisPaths is correctly populated earlier in the script, as the provided snippet doesn't show its initialization
+
+# Update the JSON object based on the directory browsing check
 If ($serviceStatus.Status -eq "Running") {
-    $iisPaths = Get-Content "$rawDir\http_path.txt"
     Foreach ($path in $iisPaths) {
         If (Test-Path $path\web.config) {
             $webConfig = Get-Content "$path\web.config"
             If ($webConfig -match "<directoryBrowse .*enabled=`"true`"") {
-                "W-23,X,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-                "불안전한 상태: 디렉토리 브라우징이 활성화되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+                $json.현황 += "불안전한 상태: 디렉토리 브라우징이 활성화되어 있습니다."
+                $json.진단결과 = "취약"
                 Break
             }
         }
     }
     If (!$?) {
-        "W-23,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-        "안전한 상태: 디렉토리 브라우징이 비활성화되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+        $json.현황 += "안전한 상태: 디렉토리 브라우징이 비활성화되어 있습니다."
+        $json.진단결과 = "양호"
     }
 } Else {
-    "W-23,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "안전한 상태: World Wide Web Publishing Service가 실행되지 않고 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+    $json.현황 += "안전한 상태: World Wide Web Publishing Service가 실행되지 않고 있습니다."
+    $json.진단결과 = "양호"
 }
 
-# W-23 데이터 캡처
-Get-Content "$rawDir\W-23.txt" | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

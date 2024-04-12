@@ -1,55 +1,57 @@
 $json = @{
-        "분류": "계정관리",
-        "코드": "W-26",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+    Classification = "Account Management"
+    Code = "W-26"
+    Risk = "High"
+    Diagnosis = "Use of decryptable encryption for password storage"
+    Result = "Good"  # Assuming 'Good' as the default
+    Status = @()
+    Recommendation = "Use decryptable encryption for password storage"
+}
 
-# 관리자 권한 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
+# Request Administrator privileges
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
     exit
 }
 
-# 초기 설정
+# Environment setup
 $computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$null = New-Item -Path "$rawDir\compare.txt" -ItemType File
-Set-Location -Path $rawDir
-(Get-Location).Path | Out-File "$rawDir\install_path.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+$directories = @("C:\Window_${computerName}_raw", "C:\Window_${computerName}_result")
 
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+foreach ($dir in $directories) {
+    Remove-Item -Path $dir -Recurse -ErrorAction SilentlyContinue
+    New-Item -Path $dir -ItemType Directory | Out-Null
+}
 
-# W-26 취약한 디렉토리 검사
+# Export security policy and gather system info
+secedit /export /cfg "$($directories[0])\Local_Security_Policy.txt"
+Get-Location | Out-File "$($directories[0])\install_path.txt"
+systeminfo | Out-File "$($directories[0])\systeminfo.txt"
+
+# Analyze IIS configuration
+$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+Get-Content $applicationHostConfigPath | Out-File "$($directories[0])\iis_setting.txt"
+Select-String -Path "$($directories[0])\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$($directories[0])\iis_path1.txt"
+
+# Check for vulnerable directories
 $serviceRunning = Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }
-$vulnerableDirs = @("c:\program files\common files\system\msadc\sample", "c:\winnt\help\iishelp", "c:\inetpub\iissamples", "${env:SystemRoot}\System32\Inetsrv\IISADMPWD")
-$result = foreach ($dir in $vulnerableDirs) {
-    if (Test-Path $dir) { $dir }
-}
+$vulnerableDirs = @(
+    "c:\program files\common files\system\msadc\sample",
+    "c:\winnt\help\iishelp",
+    "c:\inetpub\iissamples",
+    "${env:SystemRoot}\System32\Inetsrv\IISADMPWD"
+)
+$vulnerableFound = $vulnerableDirs | Where-Object { Test-Path $_ }
 
-if ($serviceRunning -and $result) {
-    "W-26,X,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "정책 위반" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    $result | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-} elseif ($serviceRunning) {
-    "W-26,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "IIS 서비스가 실행되지 않아 정책 준수" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+if ($serviceRunning -and $vulnerableFound) {
+    $json.Result = "Vulnerable"
+    $json.Status += "Policy violation detected: Vulnerable directories found."
+    $vulnerableFound | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
 } else {
-    "W-26,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "정책 준수 (IIS 서비스 미사용)" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+    $json.Result = "Safe"
+    $json.Status += "Compliant: No vulnerable directories found or IIS service not running."
 }
 
-# 결과 데이터 캡처
-$result | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+# Capture results and output JSON
+$vulnerableFound | Out-File "$($directories[1])\W-Window-${computerName}-rawdata.txt" -Append
+$json | ConvertTo-Json -Depth 3 | Out-File "$($directories[1])\W-Window-${computerName}-diagnostic_result.json"

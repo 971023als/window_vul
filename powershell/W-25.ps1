@@ -1,57 +1,52 @@
+# Initialize diagnostics JSON object
 $json = @{
-        "분류": "계정관리",
-        "코드": "W-25",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
-
-# 관리자 권한 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-If (-not $isAdmin) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    exit
+    분류 = "계정관리"
+    코드 = "W-25"
+    위험도 = "상"
+    진단 항목 = "Use of decryptable encryption to store passwords"
+    진단 결과 = "양호" # Assuming 'Good' as the default
+    현황 = @()
+    대응방안 = "Use decryptable encryption to store passwords"
 }
 
-# 환경 설정
+# Request Administrator privileges
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
+    Exit
+}
+
+# Environment and initial setup
 chcp 437 | Out-Null
 $host.UI.RawUI.ForegroundColor = "Green"
 $computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_$($computerName)_raw"
-$resultDir = "C:\Window_$($computerName)_result"
+$directories = @("C:\Window_$($computerName)_raw", "C:\Window_$($computerName)_result")
 
-# 초기 설정
-Remove-Item $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$null = New-Item -Path "$rawDir\compare.txt" -ItemType File
-(Get-Location).Path | Out-File "$rawDir\install_path.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | ForEach-Object {
-    $_.Line >> "$rawDir\iis_path1.txt"
+# Directory setup
+foreach ($dir in $directories) {
+    If (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force }
+    New-Item -Path $dir -ItemType Directory | Out-Null
 }
 
-# W-25 부모 경로 사용 설정 확인
-$serviceRunning = Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }
-if ($serviceRunning) {
-    $enableParentPaths = Select-String -Path "$rawDir\iis_setting.txt" -Pattern "asp enableParentPaths" 
-    if ($enableParentPaths) {
-        "W-25,X,|" | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
-        "부모 경로 사용 설정이 활성화되어 있어 보안 위반" | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
-    } else {
-        "W-25,O,|" | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
-        "부모 경로 사용 설정이 비활성화되어 있어 보안 준수" | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
-    }
-} else {
-    "W-25,O,|" | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
-    "IIS 서비스가 실행되지 않아 보안 준수" | Out-File "$resultDir\W-Window-$($computerName)-result.txt" -Append
+# System information and security policy export
+secedit /export /cfg "$($directories[0])\Local_Security_Policy.txt"
+(Get-Location).Path | Out-File "$($directories[0])\install_path.txt"
+systeminfo | Out-File "$($directories[0])\systeminfo.txt"
+
+# Analyze IIS configuration for "Enable Parent Paths" setting
+$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+$applicationHostConfig = Get-Content $applicationHostConfigPath
+$applicationHostConfig | Out-File "$($directories[0])\iis_setting.txt"
+$enableParentPaths = $applicationHostConfig | Select-String -Pattern "asp enableParentPaths"
+
+# Diagnostic result based on the setting
+If (Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } -and $enableParentPaths) {
+    $json.진단 결과 = "취약"
+    $json.현황 += "부모 경로 사용 설정이 활성화되어 있어 보안 위반."
+} Else {
+    $json.진단 결과 = "양호"
+    $json.현황 += If ($enableParentPaths) { "부모 경로 사용 설정이 활성화되어 있으나, IIS 서비스 비활성화 상태." } Else { "부모 경로 사용 설정이 비활성화되어 있어 보안 준수." }
 }
 
-# 결과 데이터 캡처
-"$env:WinDir\System32\Inetsrv\Config\applicationHost.Config" | Get-Content | Select-String -Pattern "enableParentPaths" | Out-File "$resultDir\W-Window-$($computerName)-rawdata.txt" -Append
+# Save the diagnostic results to a file and capture configuration data
+$json | ConvertTo-Json -Depth 3 | Out-File "$($directories[1])\W-Window-$($computerName)-diagnostic_result.json"
+$applicationHostConfig | Select-String -Pattern "enableParentPaths" | Out-File "$($directories[1])\W-Window-$($computerName)-rawdata.txt" -Append

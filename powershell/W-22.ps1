@@ -37,22 +37,22 @@ Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInfo
     $_.Matches.Value >> "$rawDir\iis_path1.txt"
 }
 
-# W-22 "World Wide Web Publishing Service" 서비스 상태 확인
-$serviceStatus = Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue
-$httpPaths = Select-String -Path "$rawDir\iis_path1.txt" -Pattern "http"
-
-If ($serviceStatus.Status -eq "Running") {
-    "W-22,X,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "위험 상태: 'World Wide Web Publishing Service'가 활성화되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    $httpPaths | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-} Else {
-    "W-22,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "정상 상태: 'World Wide Web Publishing Service'가 비활성화되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+# Update the JSON object based on the "World Wide Web Publishing Service" status analysis
+if ($serviceStatus.Status -eq "Running") {
+    $json.현황 += "위험 상태: 'World Wide Web Publishing Service'가 활성화되어 있습니다."
+    $json.진단결과 = "취약"
+} else {
+    $json.현황 += "정상 상태: 'World Wide Web Publishing Service'가 비활성화되어 있습니다."
+    $json.진단결과 = "양호"
 }
 
-# W-22 데이터 캡처
-If ($serviceStatus.Status -eq "Running") {
-    $serviceStatus | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
-} Else {
-    "World Wide Web Publishing Service is not running" | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+# Optionally, append HTTP paths information to the JSON object if the service is running
+if ($httpPaths) {
+    $json.현황 += "활성화된 HTTP 경로: $($httpPaths.Count)"
+    $json.HTTP경로 = $httpPaths -join "; "
 }
+
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
