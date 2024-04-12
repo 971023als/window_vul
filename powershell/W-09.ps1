@@ -1,14 +1,14 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-09",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-07"
+    위험도 = "상"
+    진단항목 = "Everyone 사용 권한을 익명 사용자에게 적용"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "Everyone 사용 권한을 익명 사용자에게 적용하지 않도록 설정"
+}
 
-# Check for Administrator privileges
+# Administrator privileges check
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "관리자 권한이 필요합니다..."
     $scriptPath = $MyInvocation.MyCommand.Definition
@@ -16,7 +16,7 @@ If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Exit
 }
 
-# Set console preferences
+# Console preferences
 [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
 $host.UI.RawUI.BackgroundColor = "DarkGreen"
 $host.UI.RawUI.ForegroundColor = "Green"
@@ -40,17 +40,16 @@ Get-Content "$env:WINDOWS\system32\inetsrv\MetaBase.xml" | Out-File "$rawDir\iis
 
 # Password Complexity Check
 $localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
-$passwordComplexity = $localSecurityPolicy | Where-Object { $_ -match "PasswordComplexity" }
+$everyoneIncludesAnonymous = $localSecurityPolicy | Where-Object { $_ -match "EveryoneIncludesAnonymous" }
 
-If ($passwordComplexity -match "1") {
-    $resultText = "W-09,O,| 정책 충족: '비밀번호 복잡성 요구 사항이 '활성화'로 설정되어 있습니다."
-} Else {
-    $resultText = "W-09,X,| 정책 미충족: '비밀번호 복잡성 요구 사항이 '비활성화'로 설정되어 있습니다."
+# "EveryoneIncludesAnonymous" policy analysis and JSON object update
+if ($everyoneIncludesAnonymous -match "0") {
+    $json.현황 += "'모든 사용자가 익명 사용자를 포함' 정책이 '사용 안 함'으로 올바르게 설정되어 더 높은 보안을 보장합니다."
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "'모든 사용자가 익명 사용자를 포함' 정책이 '사용 안 함'으로 설정되지 않아 잠재적 보안 위험을 초래합니다."
 }
 
-# Output the result
-$resultText | Out-File "$resultDir\W-Window-$computerName-result.txt"
-$passwordComplexity | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-
-# Save Raw Data
-$localSecurityPolicy | Where-Object { $_ -match "PasswordComplexity" } | Out-File "$resultDir\W-Window-$computerName-rawdata.txt"
+# JSON result saving
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

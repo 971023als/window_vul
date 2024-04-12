@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-13",
         "위험도": "상",
@@ -41,14 +41,15 @@ $bindingInfo | Out-File -FilePath "$rawDir\iis_path1.txt"
 $securityPolicy = Get-Content -Path "$rawDir\Local_Security_Policy.txt"
 $policyAnalysis = $securityPolicy | Where-Object { $_ -match "DontDisplayLastUserName" -and $_ -match ",1" }
 
-If ($policyAnalysis) {
-    "W-13,O,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    "준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 활성화되어 있습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-} Else {
-    "W-13,X,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    "미준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 비활성화되어 있습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+# Update the JSON object based on the "DontDisplayLastUserName" policy analysis
+if ($policyAnalysis) {
+    $json.진단결과 = "양호"
+    $json.현황 += "준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 활성화되어 있습니다."
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "미준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 비활성화되어 있습니다."
 }
-$securityPolicy | Where-Object { $_ -match "DontDisplayLastUserName" } | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
 
-# 데이터 캡처
-$securityPolicy | Where-Object { $_ -match "DontDisplayLastUserName" } | Out-File -FilePath "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-$computerName-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

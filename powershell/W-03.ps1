@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-03",
-        "위험도": "상",
-        "진단 항목": "불필요한 계정 제거",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "불필요한 계정 제거"
-    }
+# JSON 객체 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-03"
+    위험도 = "상"
+    진단항목 = "불필요한 계정 제거"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "불필요한 계정 제거"
+}
 
 # 관리자 권한 확인 및 요청
 function Test-Admin {
@@ -65,16 +66,13 @@ foreach ($user in $activeUsers) {
     }
 }
 
-$resultFilePath = "$resultPath\W-Window-${computerName}-result.txt"
 if ($testOrGuestExists) {
-    "W-03,X,|" > $resultFilePath
-    "위반 사항이 감지되었습니다" >> $resultFilePath
-    # 추가 결과 기록...
+    $json.진단결과 = "취약"
+    $json.현황 += "불필요한 계정 'test', 'guest' 가 활성화 상태로 존재합니다."
 } else {
-    "W-03,C,|" > $resultFilePath
-    "위반 사항이 없습니다" >> $resultFilePath
-    # 추가 결과 기록...
+    $json.현황 += "불필요한 계정 'test', 'guest'는 활성화 상태가 아니거나 존재하지 않습니다."
 }
 
-# 이 코드는 기본적인 변환을 제공합니다. 모든 세부 사항과 예외 처리를 완전히 다루지는 않습니다.
-# 실제 사용 전에 경로, 권한 설정, 실행 환경 등을 고려하여 테스트하고 필요에 따라 조정해야 합니다.
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultPath\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

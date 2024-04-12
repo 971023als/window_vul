@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-14",
         "위험도": "상",
@@ -47,3 +47,19 @@ $interactiveLogonRight | Out-File "$resultDir\W-Window-${computerName}-result.tx
 
 # 데이터 캡처
 $interactiveLogonRight | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+
+# Updating the JSON object based on the "SeInteractiveLogonRight" policy analysis
+if ($interactiveLogonRight) {
+    $json.현황 += "The 'SeInteractiveLogonRight' policy is configured for Administrators, IUSR accounts."
+    $json.진단결과 = "양호" # Assuming the presence of the policy indicates compliance
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "The 'SeInteractiveLogonRight' policy is not configured as expected, indicating a potential security risk."
+}
+
+# Including a generic conclusion in the JSON, can be adjusted based on specific criteria
+$json.결론 = "If necessary, adjust the policy to ensure compliance."
+
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

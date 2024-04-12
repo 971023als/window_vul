@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-19",
         "위험도": "상",
@@ -48,16 +48,16 @@ foreach ($line in $shareInfo) {
     }
 }
 
-$everyoneAccess = Select-String -Path "$rawDir\W-19-1.txt" -Pattern "Everyone"
+# Update the JSON object based on the shared folder permissions analysis
 if ($everyoneAccess) {
-    "W-19,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "문제 발견: 공유 폴더 설정을 점검하거나 필요한 폴더만 공유하며, 공유 설정에서 Everyone 그룹의 접근을 제한하세요." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    $permissionDetails | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "문제 발견: 공유 폴더 설정을 점검하거나 필요한 폴더만 공유하며, 공유 설정에서 Everyone 그룹의 접근을 제한하세요."
+    $json.진단결과 = "취약"
 } else {
-    "W-19,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "문제 없음: 공유 폴더 보안 설정이 적절하며, Everyone 그룹의 접근이 제한되어 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "문제 없음: 공유 폴더 보안 설정이 적절하며, Everyone 그룹의 접근이 제한되어 있습니다."
+    $json.진단결과 = "양호"
 }
 
-# W-19 데이터 캡처
-$shareInfo | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-$permissionDetails | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+

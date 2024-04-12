@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-02",
-        "위험도": "상",
-        "진단 항목": "Guest 계정 상태",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "Guest 계정 상태 변경"
-    }
+# 게스트 계정 상태 확인 후 JSON 객체 업데이트
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-02"
+    위험도 = "상"
+    진단항목 = "Guest 계정 상태"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "Guest 계정 상태 변경"
+}
 
 # 관리자 권한 확인 및 요청
 function Test-Admin {
@@ -45,20 +46,15 @@ systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
 # IIS 설정 수집
 $applicationHostConfig = Get-Content -Path $env:WinDir\System32\Inetsrv\Config\applicationHost.Config
 $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-
-# 게스트 계정 상태 확인
 $guestAccountInfo = net user guest
 $isActive = $guestAccountInfo -match "Account active\s+Yes"
 
 if ($isActive) {
-    "W-02,X,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    "위반 상태`n게스트 계정이 활성화 되어 있는 위험 상태`n조치 필요`n게스트 계정을 비활성화 하십시오`n위반 내용`n게스트 계정이 활성화 상태로 남아있어 조치가 필요합니다|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.진단결과 = "취약"
+    $json.현황 += "게스트 계정이 활성화 되어 있는 위험 상태로, 조치가 필요합니다."
 } else {
-    "W-02,O,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    "정상 상태`n게스트 계정이 비활성화 되어 있는 상태`n조치 방안`n게스트 계정이 정상적으로 비활성화 되어 있습니다`n정상 처리`n게스트 계정이 비활성화 상태로 유지되고 있으므로 안전합니다|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "게스트 계정이 비활성화 상태로 유지되고 있으므로 안전합니다."
 }
 
-# Raw data 기록
-"--------------------------------------W-02---------------------------------------" | Out-File -FilePath "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-$guestAccountInfo | Out-File -FilePath "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-"--------------------------------------------------------------------------------" | Out-File -FilePath "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# JSON 객체를 JSON 파일로 저장
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\diagnostic_result_$computerName.json"

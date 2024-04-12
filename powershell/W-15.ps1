@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-15",
         "위험도": "상",
@@ -40,14 +40,15 @@ Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInfo
 $securityPolicyContent = Get-Content "$rawDir\Local_Security_Policy.txt"
 $LSAAnonymousNameLookup = $securityPolicyContent | Where-Object { $_ -match "LSAAnonymousNameLookup" }
 
-If ($LSAAnonymousNameLookup -match "0") {
-    "W-15,O,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "준수 상태 감지됨: LSA 익명 이름 조회가 올바르게 비활성화되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-} Else {
-    "W-15,X,|" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-    "비준수 상태 감지됨: LSA 익명 이름 조회가 활성화되어 있습니다." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+# Update the JSON object based on the "LSAAnonymousNameLookup" policy analysis
+if ($LSAAnonymousNameLookup -match "0") {
+    $json.현황 += "준수 상태 감지됨: LSA 익명 이름 조회가 올바르게 비활성화되어 있습니다."
+    $json.진단결과 = "양호"
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "비준수 상태 감지됨: LSA 익명 이름 조회가 활성화되어 있습니다."
 }
-$LSAAnonymousNameLookup | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
 
-# 원본 데이터 캡처
-$LSAAnonymousNameLookup | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

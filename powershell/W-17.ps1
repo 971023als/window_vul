@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-17",
         "위험도": "상",
@@ -40,14 +40,15 @@ Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInfo
 $localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
 $limitBlankPasswordUsePolicy = $localSecurityPolicy | Where-Object { $_ -match "LimitBlankPasswordUse" }
 
+# Update the JSON object based on the "LimitBlankPasswordUse" policy analysis
 if ($limitBlankPasswordUsePolicy -match "1") {
-    "W-17,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "준수 확인됨: LimitBlankPasswordUse 정책이 올바르게 적용됨." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "준수 확인됨: 'LimitBlankPasswordUse' 정책이 올바르게 적용됨."
+    $json.진단결과 = "양호"
 } else {
-    "W-17,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "준수하지 않음 감지됨: LimitBlankPasswordUse 정책이 올바르게 적용되지 않음." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.진단결과 = "취약"
+    $json.현황 += "준수하지 않음 감지됨: 'LimitBlankPasswordUse' 정책이 올바르게 적용되지 않음."
 }
-$limitBlankPasswordUsePolicy | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
 
-# 데이터 캡처
-$limitBlankPasswordUsePolicy | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

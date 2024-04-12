@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-18",
         "위험도": "상",
@@ -52,19 +52,15 @@ foreach ($user in $userList) {
 
 $userRemoteDetails | Out-File "$rawDir\user_Remote.txt"
 
-# 무단 사용자 검사
-$unauthorizedUsers = Select-String -Path "$rawDir\user_Remote.txt" -Pattern "test|Guest"
+# Update the JSON object based on the unauthorized users check
 if ($unauthorizedUsers) {
-    "W-18,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "무단 사용자가 'Remote Desktop Users' 그룹에 발견되었습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    Get-Content "$rawDir\user_Remote.txt" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "무단 접근 권한 수정을 검토하고 조치하세요." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "무단 사용자가 'Remote Desktop Users' 그룹에 발견되었습니다."
+    $json.진단결과 = "취약"
 } else {
-    "W-18,C,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "'Remote Desktop Users' 그룹에 무단 사용자가 없습니다. 준수 상태가 확인되었습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    Get-Content "$rawDir\user_Remote.txt" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "조치가 필요 없습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    $json.현황 += "'Remote Desktop Users' 그룹에 무단 사용자가 없습니다. 준수 상태가 확인되었습니다."
+    $json.진단결과 = "양호"
 }
 
-# 데이터 캡처
-net localgroup "Administrators" | Select-String -Pattern ".*" -NotMatch | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

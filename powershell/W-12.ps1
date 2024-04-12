@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-12",
         "위험도": "상",
@@ -45,17 +45,24 @@ $minimumPasswordAge = $localSecurityPolicy | Where-Object { $_ -match "MinimumPa
         $matches[0]
     }
 }
-If ($minimumPasswordAge -gt 0) {
+
+# Update the JSON object based on the minimum password age analysis
+if ($minimumPasswordAge -gt 0) {
     $userPwFile = Get-Content "$rawDir\user_pw.txt"
     $policyMatch = $userPwFile | Select-String -Pattern "2012|2013|2014|2015" -Quiet
-    If ($policyMatch) {
-        "W-12,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "암호 정책 설정으로 인한 불일치 감지됨." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    } Else {
-        "W-12,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "최소 암호 사용 기간 정책 준수 감지됨." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    if ($policyMatch) {
+        $json.진단결과 = "취약"
+        $json.현황 += "암호 정책 설정으로 인한 불일치 감지됨."
+    } else {
+        $json.진단결과 = "양호"
+        $json.현황 += "최소 암호 사용 기간 정책 준수 감지됨."
     }
-} Else {
-    "W-12,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "암호 사용 기간 정책 분석을 건너뛰었거나 해당 없음." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "암호 사용 기간 정책 분석을 건너뛰었거나 해당 없음."
 }
+
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+

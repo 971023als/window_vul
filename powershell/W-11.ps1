@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-11",
         "위험도": "상",
@@ -59,11 +59,22 @@ Get-Content "user.txt" | ForEach-Object {
     }
 }
 
-$policyInfo = Get-Content "$rawDir\Local_Security_Policy.txt" | Where-Object { $_ -match "최대암호사용기간" }
-If ($policyInfo -match "\d+") {
+# Update the JSON object based on the policy analysis
+if ($policyInfo -match "\d+") {
     $maximumPasswordAge = $Matches[0]
-    If ($maximumPasswordAge -lt 91) {
-        "W-11,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "최대 암호 사용 기간 정책이 준수됩니다, 90일 미만으로 설정됨." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    } Else {
-        "W-11,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt
+    if ($maximumPasswordAge -lt 91) {
+        $json.진단결과 = "양호"
+        $json.현황 += "최대 암호 사용 기간 정책이 준수됩니다. 90일 미만으로 설정됨."
+    } else {
+        $json.진단결과 = "취약"
+        $json.현황 += "최대 암호 사용 기간 정책이 준수되지 않습니다. 90일 이상으로 설정됨."
+    }
+} else {
+    $json.현황 += "최대암호사용기간 정책 정보를 찾을 수 없습니다."
+}
+
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
+# Ensure to close the statement properly

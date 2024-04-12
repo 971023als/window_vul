@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-10",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+# JSON 객체 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-10"
+    위험도 = "상"
+    진단항목 = "해독 가능한 암호화를 사용하여 암호 저장"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "해독 가능한 암호화를 사용하여 암호 저장"
+}
 
 # 관리자 권한으로 실행 중인지 확인
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
@@ -56,15 +57,21 @@ Get-Content "user.txt" | ForEach-Object {
     }
 }
 
-# 최대암호사용기간 분석
-$policyInfo = Get-Content "${rawDir}\Local_Security_Policy.txt" | Select-String "최대암호사용기간"
+
+# 최대암호사용기간 분석 후 JSON 객체 업데이트
 if ($policyInfo -and $policyInfo -match "\d+") {
     $maxAge = [int]$Matches[0]
     if ($maxAge -lt 91) {
-        # 정책 준수 시의 처리 로직
-        "정책 준수" > "${resultDir}\W-Window-${computerName}-result.txt"
+        $json.진단결과 = "양호"
+        $json.현황 += "최대암호사용기간이 91일 미만으로 설정되어 정책을 준수합니다."
     } else {
-        # 정책 비준수 시의 처리 로직
-        "정책 비준수" > "${resultDir}\W-Window-${computerName}-result.txt"
+        $json.진단결과 = "취약"
+        $json.현황 += "최대암호사용기간이 91일 이상으로 설정되어 정책을 준수하지 않습니다."
     }
+} else {
+    $json.현황 += "최대암호사용기간 정책 정보를 찾을 수 없습니다."
 }
+
+# JSON 결과를 파일로 저장
+$jsonFilePath = "${resultDir}\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

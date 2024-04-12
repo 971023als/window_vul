@@ -1,4 +1,4 @@
-json = {
+$json = @{
         "분류": "계정관리",
         "코드": "W-16",
         "위험도": "상",
@@ -41,14 +41,15 @@ Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInfo
 $localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
 $passwordHistorySize = ($localSecurityPolicy | Where-Object { $_ -match "PasswordHistorySize" }).Split("=")[1].Trim()
 
-If ($passwordHistorySize -gt 11) {
-    "W-16,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "준수 확인됨: 비밀번호 이력 크기가 11개 이전 비밀번호를 초과하도록 설정됨." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-} Else {
-    "W-16,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "준수하지 않음 감지됨: 비밀번호 이력 크기가 11개 이전 비밀번호를 초과하지 않음." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+# Update the JSON object based on the "PasswordHistorySize" policy analysis
+if ($passwordHistorySize -gt 11) {
+    $json.현황 += "준수 확인됨: 비밀번호 이력 크기가 11개 이전 비밀번호를 초과하도록 설정됨."
+    $json.진단결과 = "양호"
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "준수하지 않음 감지됨: 비밀번호 이력 크기가 11개 이전 비밀번호를 초과하지 않음."
 }
-$localSecurityPolicy | Where-Object { $_ -match "PasswordHistorySize" } | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
 
-# 데이터 캡처
-$localSecurityPolicy | Where-Object { $_ -match "PasswordHistorySize" } | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

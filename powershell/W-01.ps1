@@ -1,12 +1,13 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-01",
-        "위험도": "상",
-        "진단 항목": "Administrator 계정 이름 바꾸기",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "Administrator 계정 이름 변경"
-    }
+# 진단 결과 JSON 객체
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-01"
+    위험도 = "상"
+    진단항목 = "Administrator 계정 이름 바꾸기"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "Administrator 계정 이름 변경"
+}
 
 # 관리자 권한 확인
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
@@ -38,12 +39,16 @@ $applicationHostConfig | Out-File -FilePath "$rawPath\iis_setting.txt"
 
 # 추가적인 처리와 검사 로직은 여기에 구현합니다...
 
-# 예를 들어, 관리자 계정 이름 변경 여부 확인
+# 관리자 계정 이름 변경 여부 확인
 $adminNameChange = Select-String -Path "$rawPath\Local_Security_Policy.txt" -Pattern "NewAdministratorName"
-If ($adminNameChange -ne $null) {
-    # 위반 사항 기록 로직
-} Else {
-    # 정상 사항 기록 로직
+if ($adminNameChange -ne $null) {
+    $json.진단결과 = "취약"
+    $json.현황 += "관리자 계정의 기본 이름이 변경되지 않았습니다."
+} else {
+    $json.현황 += "관리자 계정의 기본 이름이 변경되었습니다."
 }
 
-# 위의 예제는 스크립트의 일부분만을 PowerShell로 변환한 것입니다. 전체 스크립트를 변환하려면 각 단계와 명령어를 PowerShell의 문법과 기능에 맞게 조정해야 합니다.
+# 진단 결과 JSON 파일로 저장
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultPath\diagnostic_result.json"
+
+# 이후에는 결과 보고서를 생성하는 코드를 추가할 수 있습니다.

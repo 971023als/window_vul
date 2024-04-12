@@ -1,12 +1,12 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-04",
-        "위험도": "상",
-        "진단 항목": "계정 잠금 임계값 설정",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "계정 잠금 임계값 설정"
-    }
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-04"
+    위험도 = "상"
+    진단항목 = "계정 잠금 임계값 설정"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "계정 잠금 임계값 설정"
+}
 
 # 관리자 권한 확인 및 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -36,17 +36,17 @@ Get-Content -Path "$env:WinDir\System32\inetsrv\MetaBase.xml" | Out-File -FilePa
 $accountPolicies = secedit /export /areas SECURITYPOLICY /cfg "$rawDir\secconfig.cfg"
 $lockoutThreshold = (Get-Content "$rawDir\secconfig.cfg" | Select-String "LockoutBadCount").ToString().Split('=')[1].Trim()
 
+# 계정 잠금 임계값 검사 후 JSON 객체 업데이트
 If ($lockoutThreshold -gt 5) {
-    $resultText = "W-04,X,| 준수하지 않음이 감지되었습니다. 계정 잠금 임계값이 5회 시도보다 많게 설정되어 있으며, 이는 준수되지 않습니다."
+    $json.진단결과 = "취약"
+    $json.현황 += "계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다."
 } ElseIf ($lockoutThreshold -eq 0) {
-    $resultText = "W-04,X,| 준수하지 않음이 감지되었습니다. 계정 잠금 임계값이 설정되지 않았습니다(없음), 이는 준수되지 않습니다."
+    $json.진단결과 = "취약"
+    $json.현황 += "계정 잠금 임계값이 설정되지 않았습니다(없음)."
 } Else {
-    $resultText = "W-04,O,| 준수됨이 감지되었습니다. 계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
+    $json.현황 += "계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
 }
 
-# 결과 기록
-$resultText | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt"
-"잠금 임계값: $lockoutThreshold" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-
-# 원시 데이터 기록
-"net accounts" | Out-File -FilePath "$resultDir\W-Window-$computerName-rawdata.txt" -Append
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

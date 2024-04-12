@@ -1,12 +1,12 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-05",
-        "위험도": "상",
-        "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "해독 가능한 암호화를 사용하여 암호 저장"
-    }
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-05"
+    위험도 = "상"
+    진단항목 = "해독 가능한 암호화를 사용하여 암호 저장"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "해독 가능한 암호화를 사용하여 암호 저장 방지"
+}
 
 # Check for Administrator permissions
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -46,15 +46,14 @@ $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
 $localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
 $clearTextPasswordSetting = $localSecurityPolicy | Where-Object { $_ -match "ClearTextPassword" }
 
+# "Store passwords using reversible encryption" 정책 검사 후 JSON 객체 업데이트
 If ($clearTextPasswordSetting -match "0") {
-    $result = "W-05,O,| 준수 상태 감지됨. `n`"가역 암호화를 사용하여 비밀번호 저장`" 정책이 `"`사용 안 함`"으로 설정되어 있습니다."
+    $json.현황 += "가역 암호화를 사용하여 비밀번호 저장 정책이 '사용 안 함'으로 설정되어 있습니다."
 } Else {
-    $result = "W-05,X,| 비준수 상태 감지됨. `n`"가역 암호화를 사용하여 비밀번호 저장`" 정책이 적절히 구성되지 않았습니다."
+    $json.진단결과 = "취약"
+    $json.현황 += "가역 암호화를 사용하여 비밀번호 저장 정책이 적절히 구성되지 않았습니다."
 }
 
-# Output the result
-$result | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt"
-$clearTextPasswordSetting | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-
-# Write raw data
-$localSecurityPolicy | Out-File -FilePath "$resultDir\W-Window-$computerName-rawdata.txt"
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
