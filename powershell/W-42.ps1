@@ -1,17 +1,18 @@
-json = {
-        "분류": "계정관리",
-        "코드": "W-42",
-        "위험도": "상",
-        "진단 항목": "RDS(RemoteDataServices)제거",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "RDS(RemoteDataServices)제거"
-    }
+# JSON 데이터 구조 정의
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-42"
+    위험도 = "상"
+    진단항목 = "RDS(RemoteDataServices)제거"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "RDS(RemoteDataServices)제거"
+}
 
 # 관리자 권한 요청
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    $script = "-File `"$PSCommandPath`" $args"
+    $script = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $args"
     Start-Process PowerShell -ArgumentList $script -Verb RunAs
     exit
 }
@@ -31,28 +32,26 @@ $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# W-42 웹 서비스 상태 점검 시작
-Write-Host "------------------------------------------W-42 웹 서비스 상태 점검 시작------------------------------------------"
+# W-42 RDS 상태 점검 시작
+Write-Host "------------------------------------------W-42 RDS 상태 점검 시작------------------------------------------"
 $webService = Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue
+
 if ($webService.Status -eq "Running") {
-    "W-42,OK,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    @"
-상태 확인: 웹 서비스가 실행 중입니다.
-웹 서비스의 실행은 다음과 같은 위험을 수반할 수 있습니다:
-1. IIS가 필요하지 않는 경우
-2. 구성이 취약하거나 최신 보안 패치가 적용되지 않은 경우
-3. 기본 설치 옵션을 변경하지 않고 사용하는 경우
-조치 방안: 필요에 따라 웹 서비스를 비활성화하거나 보안 설정을 강화하세요.
-"@
+    $json.진단결과 = "위험"
+    $json.현황 += "웹 서비스가 실행 중입니다. RDS(Remote Data Services)가 활성화되어 있을 수 있습니다."
+    $json.대응방안 = "웹 서비스를 비활성화하거나 RDS 관련 구성을 제거하세요."
 } else {
-    "W-42,정보,|" | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
-    "상태 확인: 웹 서비스가 실행되지 않거나 설치되지 않았습니다."
+    $json.현황 += "웹 서비스가 실행되지 않거나 설치되지 않았습니다. RDS 제거 상태가 양호합니다."
 }
-Write-Host "-------------------------------------------W-42 웹 서비스 상태 점검 종료------------------------------------------"
+
+# 결과를 JSON 파일로 저장
+$jsonFilePath = "$resultDir\W-42_diagnostics_results.json"
+$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonFilePath
+
+Write-Host "-------------------------------------------W-42 RDS 상태 점검 종료------------------------------------------"
 
 # 결과 요약
-Write-Host "결과가 C:\Window_$computerName\_result\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
+Write-Host "결과가 $jsonFilePath 에 저장되었습니다."
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
