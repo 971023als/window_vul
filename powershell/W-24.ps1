@@ -1,12 +1,12 @@
 # Initialize JSON object for diagnostics
 $json = @{
-    분류 = "계정관리"
+    분류 = "서비스관리"
     코드 = "W-24"
     위험도 = "상"
-    진단 항목 = "해독 가능한 암호화를 사용하여 암호 저장"
+    진단 항목 = "IIS CGI 실행 제한"
     진단 결과 = "양호"  # Assuming 'Good' as the default
     현황 = @()
-    대응방안 = "해독 가능한 암호화를 사용하여 암호 저장"
+    대응방안 = "IIS CGI 실행 제한"
 }
 
 # Request Administrator privileges

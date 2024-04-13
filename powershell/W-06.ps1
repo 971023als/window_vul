@@ -9,7 +9,7 @@ $json = @{
 }
 
 # Check for Administrator privileges
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "관리자 권한을 요청하는 중..."
     $currentScript = $MyInvocation.MyCommand.Definition
     Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$currentScript`"" -Verb RunAs
@@ -27,11 +27,9 @@ $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-mkdir $rawDir, $resultDir
-New-Item -Path "$rawDir\compare.txt" -ItemType File
+New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
 # Get installation path
-$installPath = Get-Location
 "$installPath" | Out-File "$rawDir\install_path.txt"
 
 # Collect system information
@@ -55,5 +53,5 @@ if ($nonCompliantAccounts) {
 }
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result_1.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

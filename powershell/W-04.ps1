@@ -1,3 +1,4 @@
+# JSON 객체 초기화
 $json = @{
     분류 = "계정관리"
     코드 = "W-04"
@@ -9,7 +10,7 @@ $json = @{
 }
 
 # 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "관리자 권한이 필요합니다..."
     Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
     Exit
@@ -21,8 +22,11 @@ $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
-$securityPolicy = secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
+
+# 보안 정책, 시스템 정보 등 수집
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+$securityConfig = "$rawDir\Local_Security_Policy.txt"
+$securityPolicy = secedit /export /areas SECURITYPOLICY /cfg "$securityConfig"
 
 # 시스템 정보 수집
 systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
@@ -30,23 +34,23 @@ systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
 # IIS 설정 수집
 $applicationHostConfig = Get-Content -Path "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
 $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-Get-Content -Path "$env:WinDir\System32\inetsrv\MetaBase.xml" | Out-File -FilePath "$rawDir\iis_setting.txt" -Append
 
 # 계정 잠금 임계값 검사
-$accountPolicies = secedit /export /areas SECURITYPOLICY /cfg "$rawDir\secconfig.cfg"
-$lockoutThreshold = (Get-Content "$rawDir\secconfig.cfg" | Select-String "LockoutBadCount").ToString().Split('=')[1].Trim()
+If (Test-Path $securityConfig) {
+    $lockoutThreshold = (Get-Content $securityConfig | Select-String "LockoutBadCount").ToString().Split('=')[1].Trim()
 
-# 계정 잠금 임계값 검사 후 JSON 객체 업데이트
-If ($lockoutThreshold -gt 5) {
-    $json.진단결과 = "취약"
-    $json.현황 += "계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다."
-} ElseIf ($lockoutThreshold -eq 0) {
-    $json.진단결과 = "취약"
-    $json.현황 += "계정 잠금 임계값이 설정되지 않았습니다(없음)."
-} Else {
-    $json.현황 += "계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
+    # 계정 잠금 임계값 검사 후 JSON 객체 업데이트
+    If ($lockoutThreshold -gt 5) {
+        $json.진단결과 = "취약"
+        $json.현황 += "계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다."
+    } ElseIf ($lockoutThreshold -eq 0) {
+        $json.진단결과 = "취약"
+        $json.현황 += "계정 잠금 임계값이 설정되지 않았습니다(없음)."
+    } Else {
+        $json.현황 += "계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
+    }
 }
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result_1.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

@@ -3,15 +3,14 @@ $json = @{
     분류 = "계정관리"
     코드 = "W-10"
     위험도 = "상"
-    진단항목 = "해독 가능한 암호화를 사용하여 암호 저장"
+    진단항목 = "패스워드 최소 암호 길이"
     진단결과 = "양호"  # 기본 값을 "양호"로 가정
     현황 = @()
-    대응방안 = "해독 가능한 암호화를 사용하여 암호 저장"
+    대응방안 = "패스워드 최소 암호 길이"
 }
 
 # 관리자 권한으로 실행 중인지 확인
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
-{
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     # 현재 스크립트를 관리자 권한으로 재실행
     Start-Process PowerShell -ArgumentList "-File `"$PSCommandPath`"", "-NoProfile", "-ExecutionPolicy Bypass" -Verb RunAs
     Exit
@@ -41,12 +40,12 @@ systeminfo > "${rawDir}\systeminfo.txt"
 $iisConfig = Get-Content -Path "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config"
 $iisConfig > "${rawDir}\iis_setting.txt"
 
-# 필터링 및 경로 추출
-Select-String -Path "${rawDir}\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | ForEach-Object {
-    $_.Line >> "${rawDir}\iis_path1.txt"
-}
+# "user.txt" 파일 생성 후 읽어오기
+Set-Content -Path "${rawDir}\user.txt" -Value "User1", "User2"
 
 cd "${rawDir}"
+
+# "user.txt" 파일에서 사용자 정보 읽어오기
 Get-Content "user.txt" | ForEach-Object {
     $user = $_.Trim()
     $userInfo = net user $user
@@ -57,10 +56,12 @@ Get-Content "user.txt" | ForEach-Object {
     }
 }
 
+# 로컬 보안 정책 정보 읽어오기
+$policyInfo = Get-Content "${rawDir}\Local_Security_Policy.txt"
 
 # 최대암호사용기간 분석 후 JSON 객체 업데이트
-if ($policyInfo -and $policyInfo -match "\d+") {
-    $maxAge = [int]$Matches[0]
+if ($policyInfo -match "최대암호사용기간\s*:\s*(\d+)") {
+    $maxAge = [int]$Matches[1]
     if ($maxAge -lt 91) {
         $json.진단결과 = "양호"
         $json.현황 += "최대암호사용기간이 91일 미만으로 설정되어 정책을 준수합니다."

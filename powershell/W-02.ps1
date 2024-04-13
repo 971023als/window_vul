@@ -12,7 +12,7 @@ $json = @{
 # 관리자 권한 확인 및 요청
 function Test-Admin {
     $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())
-    $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 if (-not (Test-Admin)) {
@@ -22,30 +22,30 @@ if (-not (Test-Admin)) {
 
 # 콘솔 환경 설정
 $OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
-$host.UI.RawUI.BackgroundColor = 'Green'
-$host.UI.RawUI.ForegroundColor = 'Black'
+$host.UI.RawUI.BackgroundColor = 'DarkBlue'
+$host.UI.RawUI.ForegroundColor = 'White'
 Clear-Host
 
-# 기본 디렉토리 설정
+# 기본 디렉터리 설정
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
 # 로컬 보안 정책 내보내기 및 기본 파일 생성
 secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
 New-Item -Path "$rawDir\compare.txt" -ItemType File
 
-# 설치 경로 및 시스템 정보 수집
-Set-Location -Path $rawDir
-[System.IO.File]::WriteAllText("$rawDir\install_path.txt", (Get-Location).Path)
+# 시스템 정보 수집
 systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
 
 # IIS 설정 수집
 $applicationHostConfig = Get-Content -Path $env:WinDir\System32\Inetsrv\Config\applicationHost.Config
 $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
+
+# 게스트 계정 정보 수집 및 분석
 $guestAccountInfo = net user guest
 $isActive = $guestAccountInfo -match "Account active\s+Yes"
 
@@ -58,3 +58,5 @@ if ($isActive) {
 
 # JSON 객체를 JSON 파일로 저장
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\diagnostic_result_$computerName.json"
+
+Write-Host "스크립트 실행 완료"
