@@ -38,9 +38,9 @@ if ($addPrinterDrivers -match "1") {
     $json.현황 += "프린터 드라이버 추가 권한이 적절하지 않게 설정되어 있습니다."
 }
 
-# Save the JSON data to a file
-$jsonPath = "$resultDir\W-73_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-73.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # Cleanup

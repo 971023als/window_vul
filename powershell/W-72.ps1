@@ -35,9 +35,9 @@ if ($synAttackProtect -and $synAttackProtect.SynAttackProtect -eq 1) {
     $json.현황 += "SynAttackProtect가 비활성화되어 있거나, 설정이 적절히 조정되지 않았습니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-72_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-72.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 출력
