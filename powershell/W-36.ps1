@@ -1,5 +1,3 @@
-# PowerShell Script for NetBIOS Configuration Audit
-
 # Define the audit parameters
 $auditParams = @{
     Category = "Account Management"
@@ -35,7 +33,7 @@ function Initialize-AuditEnvironment {
     # Clean up previous data and set up directories for current audit
     Remove-Item $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item $rawDir, $resultDir -ItemType Directory | Out-Null
-    secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
     systeminfo | Out-File "$rawDir\SystemInfo.txt"
 }
 
@@ -59,12 +57,12 @@ function Finalize-Audit {
     Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
 }
 
-# Main
+# Main execution flow
 Setup-Console
 Initialize-AuditEnvironment
 Check-NetBIOSConfiguration
 Finalize-Audit
 
-# JSON 결과를 파일에 저장
+# Save JSON results to a file
 $jsonFilePath = "$resultDir\W-36.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+$auditParams | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
