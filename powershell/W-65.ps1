@@ -37,9 +37,9 @@ if ($shutdownWithoutLogon -eq 0) {
     $json.현황 += "안전: '로그온 없이 시스템을 종료할 수 있는 정책'이 활성화되어 있습니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-65_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-65.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 보고 및 스크립트 종료 메시지
