@@ -1,59 +1,51 @@
-# JSON 형태로 데이터 저장
-security_data = {
-    "분류": "보안관리",
-    "코드": "W-77",
-    "위험도": "상",
-    "진단 항목": "LAN Manager 인증 수준",
-    "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-    "현황": [],
-    "대응방안": "LAN Manager 인증 수준 변경"
+# Define the initial JSON data structure
+$json = @{
+    "분류" = "보안관리"
+    "코드" = "W-77"
+    "위험도" = "상"
+    "진단 항목" = "LAN Manager 인증 수준"
+    "진단 결과" = "양호"  # Assume the default value is "Good"
+    "현황" = @()
+    "대응방안" = "LAN Manager 인증 수준 변경"
 }
-# 관리자 권한으로 실행되지 않았다면 스크립트를 관리자 권한으로 다시 실행
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
-{
-    Start-Process powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSCommandPath" -Verb RunAs
+
+# Request administrator privileges if not already running as an administrator
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Verb RunAs"
     exit
 }
 
+# Environment setup
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
-# 기존 폴더 삭제 및 새 폴더 생성
-if (Test-Path $rawDir) { Remove-Item -Path $rawDir -Recurse -Force }
-if (Test-Path $resultDir) { Remove-Item -Path $resultDir -Recurse -Force }
+# Clear existing data and create directories for new data
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# 로컬 보안 정책 내보내기
+# Export local security policy to a text file
 secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
 
-# 시스템 정보 수집
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+# Analyze the LAN Manager authentication level setting from the registry
+$lanManKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+$lanManagerAuthLevel = Get-ItemProperty -Path $lanManKey -Name "LmCompatibilityLevel" -ErrorAction SilentlyContinue
 
-# IIS 설정 파일 읽기
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-
-# 임시 파일 및 폴더 삭제
-Remove-Item -Path $rawDir -Recurse -Force
-
-# 진단 결과에 따라 JSON 데이터 업데이트
-$json = $security_data | ConvertFrom-Json
-if ($vulnerableUsers.Count -gt 0) {
-    $json.diagnostic_result = "Vulnerable"
-    $json.status = $vulnerableUsers | ForEach-Object { "Full permission set for Everyone group: $_" }
+# Conditionally update the JSON object based on the LM authentication level
+if ($lanManagerAuthLevel -and $lanManagerAuthLevel.LmCompatibilityLevel -ge 3) {
+    $json.현황 += "LAN Manager 인증 수준이 보안에 적합하게 설정되어 있습니다."
 } else {
-    $json.diagnostic_result = "Good"
+    $json.진단 결과 = "취약"
+    $json.현황 += "LAN Manager 인증 수준이 보안 기준에 미치지 못합니다."
 }
 
-# JSON 결과를 파일에 저장
+# Convert the hashtable to a JSON object and save it to a file
 $jsonFilePath = "$resultDir\W-77.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
-# 결과 요약
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Remove-Item "$rawDir" -Recurse -Force
-
+# Provide summary and cleanup
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 Write-Host "스크립트가 완료되었습니다."
+
+# Cleanup the raw directory
+Remove-Item "$rawDir\*" -Recurse -Force
