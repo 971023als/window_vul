@@ -39,9 +39,9 @@ If ($schedulerTasks -notmatch "There are no entries in the list") {
     $json.현황 += "스케줄러에 예약된 작업이 없으며, 이는 보안 상태가 안전함을 나타냅니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-54_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-54.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 저장

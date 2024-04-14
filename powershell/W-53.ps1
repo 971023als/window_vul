@@ -39,9 +39,9 @@ If ($rdpTcpSettings.MaxIdleTime -eq 0) {
     $json.현황 += "RDP 세션 타임아웃이 적절하게 구성되었습니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-53_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-53.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 저장

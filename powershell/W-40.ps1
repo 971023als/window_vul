@@ -29,8 +29,7 @@ $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
 # 결과 저장 경로 안내
-$jsonFilePath = "C:\path_to_your_output\FTP_diagnostics_results.json"
-Write-Host "결과는 다음 위치에 저장될 예정입니다: $jsonFilePath"
+Write-Host "결과는 다음 위치에 저장될 예정입니다: $resultDir\W-40.json"
 
 Try {
     # 이전 디렉토리 삭제 및 새 디렉토리 생성
@@ -41,21 +40,16 @@ Try {
     # 실제 진단 로직을 구현하세요. 이 예제에서는 단순화를 위해 직접 값을 설정합니다.
     $isFtpSecure = $false
 
-    if ($isFtpSecure -eq $false) {
+    if (-not $isFtpSecure) {
         $json."진단 결과" = "위험"
-        $json.현황 = @("특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다.")
+        $json.현황 += "특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다."
     } else {
-        $json.현황 = @("특정 IP 주소에서만 FTP 접속이 허용되어 있습니다.")
+        $json.현황 += "특정 IP 주소에서만 FTP 접속이 허용되어 있습니다."
     }
 
     # JSON 결과를 파일에 저장
-    $jsonFilePath = "$resultDir\W-40.json"
-    $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+    $json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\W-40.json"
 
 } Catch {
     Write-Host "오류 발생: $_"
 }
-
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-40.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
