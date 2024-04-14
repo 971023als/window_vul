@@ -56,9 +56,9 @@ If ($telnetServiceStatus -and $telnetServiceStatus.Status -eq 'Running') {
 
 Write-Host "------------------------------------------End of Telnet Service Security Setting------------------------------------------"
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-51_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-51.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 저장
