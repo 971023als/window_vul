@@ -44,9 +44,9 @@ if ($webService.Status -eq "Running") {
     $json.현황 += "웹 서비스가 실행되지 않거나 설치되지 않았습니다. RDS 제거 상태가 양호합니다."
 }
 
-# 결과를 JSON 파일로 저장
-$jsonFilePath = "$resultDir\W-42_diagnostics_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonFilePath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-42.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
 Write-Host "-------------------------------------------W-42 RDS 상태 점검 종료------------------------------------------"
 

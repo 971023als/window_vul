@@ -11,7 +11,7 @@ $json = @{
 # 관리자 권한 확인 및 요청
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    $script = "-File `"" + $MyInvocation.MyCommand.Path + "`""
+    $script = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
     Start-Process PowerShell.exe -ArgumentList $script -Verb RunAs
     exit
 }
@@ -20,19 +20,19 @@ if (-not $isAdmin) {
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
 # 로컬 보안 정책 내보내기
 secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-New-Item -Path "$rawDir\compare.txt" -ItemType File
+New-Item -Path "$rawDir\compare.txt" -ItemType File -Force | Out-Null
 
 # 시스템 정보 저장
 systeminfo | Out-File "$rawDir\systeminfo.txt"
 
 # IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
+$applicationHostConfig = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+Get-Content -Path $applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
 $bindingInfo = Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation"
 $bindingInfo | Out-File "$rawDir\iis_path1.txt"
 

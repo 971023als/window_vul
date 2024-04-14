@@ -1,4 +1,3 @@
-# Initial Setup
 $json = @{
     분류 = "계정관리"
     코드 = "W-33"
@@ -25,27 +24,31 @@ function Prepare-Environment {
     New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
     secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-    New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
+    New-Item -Path "$rawDir\compare.txt" -ItemType File | Out-Null
 
-    Get-Location.Path | Out-File -FilePath "$rawDir\install_path.txt"
+    (Get-Location).Path | Out-File -FilePath "$rawDir\install_path.txt"
     systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
 }
 
 # IIS Configuration Analysis
 function Analyze-IISConfiguration {
     $applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-    $applicationHostConfig = Get-Content $applicationHostConfigPath
-    $applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
+    if (Test-Path $applicationHostConfigPath) {
+        $applicationHostConfig = Get-Content $applicationHostConfigPath
+        $applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
 
-    $unsupportedExtensions = @(".htr", ".idc", ".stm", ".shtm", ".shtml", ".printer", ".htw", ".ida", ".idq")
-    $foundExtensions = $applicationHostConfig | Where-Object { $_ -match ($unsupportedExtensions -join "|") }
+        $unsupportedExtensions = @(".htr", ".idc", ".stm", ".shtm", ".shtml", ".printer", ".htw", ".ida", ".idq")
+        $foundExtensions = $applicationHostConfig | Where-Object { $_ -match ($unsupportedExtensions -join "|") }
 
-    if ($foundExtensions) {
-        $json.현황 += "Unsupported extensions found posing a security risk."
-        $json.진단 결과 = "취약"
-        $foundExtensions | Out-File "$resultDir\W-Window-$computerName.txt"
+        if ($foundExtensions) {
+            $json.현황 += "Unsupported extensions found posing a security risk."
+            $json.진단 결과 = "취약"
+            $foundExtensions | Out-File "$resultDir\W-Window-$computerName.txt"
+        } else {
+            $json.현황 += "No unsupported extensions found, complying with security standards."
+        }
     } else {
-        $json.현황 += "No unsupported extensions found, complying with security standards."
+        Write-Host "IIS configuration file not found at $applicationHostConfigPath."
     }
 }
 
@@ -53,6 +56,6 @@ function Analyze-IISConfiguration {
 Prepare-Environment
 Analyze-IISConfiguration
 
-# JSON 결과를 파일에 저장
+# Save JSON results to a file
 $jsonFilePath = "$resultDir\W-33.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
