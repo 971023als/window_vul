@@ -1,5 +1,3 @@
-# PowerShell Script for WebDAV Security Audit
-
 # Initialize audit parameters
 $auditParameters = @{
     Category = "Account Management"
@@ -47,7 +45,7 @@ function Perform-WebDAVSecurityCheck {
     $serviceStatus = (Get-Service W3SVC -ErrorAction SilentlyContinue).Status
 
     if ($serviceStatus -eq "Running") {
-        $webDavConfigurations = Select-String -Path "$env:Windows\System32\inetsrv\config\applicationHost.config" -Pattern "webdav" -AllMatches
+        $webDavConfigurations = Select-String -Path "$env:SystemRoot\System32\inetsrv\config\applicationHost.config" -Pattern "webdav" -AllMatches
 
         if ($webDavConfigurations) {
             foreach ($config in $webDavConfigurations) {
@@ -67,6 +65,6 @@ Initialize-Console
 Setup-AuditEnvironment
 Perform-WebDAVSecurityCheck
 
-# JSON 결과를 파일에 저장
+# Save JSON results to a file
 $jsonFilePath = "$resultDir\W-35.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+$auditParameters | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

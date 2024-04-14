@@ -55,9 +55,9 @@ if ($webService.Status -eq "Running") {
 }
 Write-Host "-------------------------------------------W-45 IIS 커스텀 에러 페이지 설정 검사 종료------------------------------------------"
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-45_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-45.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약
