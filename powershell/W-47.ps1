@@ -31,29 +31,36 @@ Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyConti
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
 # SNMP 서비스 커뮤니티 스트링 검사
-Write-Host "------------------------------------------W-47 SNMP 서비스 커뮤니티 스트링 검사------------------------------------------"
+Write-Host "------------------------------------------W-47 SNMP 서비스 커뮤니티 스트링 검사 시작------------------------------------------"
 $snmpService = Get-Service -Name SNMP -ErrorAction SilentlyContinue
-if ($snmpService.Status -eq "Running") {
-    $communities = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities"
-    if ($communities -and ($communities.PSObject.Properties.Name -contains "public" -or $communities.PSObject.Properties.Name -contains "private")) {
-        $json.진단 결과 = "경고"
-        $json.현황 += "SNMP 서비스가 실행 중이며 기본 커뮤니티 스트링인 'public' 또는 'private'를 사용하고 있습니다. 이는 네트워크에 보안 취약점을 노출시킬 수 있습니다."
+if ($snmpService -and $snmpService.Status -eq "Running") {
+    $communities = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities" -ErrorAction SilentlyContinue
+    if ($communities) {
+        $defaultStrings = $communities.PSObject.Properties.Name -match 'public|private'
+        if ($defaultStrings) {
+            $json.진단 결과 = "경고"
+            $json.현황 += "SNMP 서비스가 실행 중이며 기본 커뮤니티 스트링인 'public' 또는 'private'를 사용하고 있습니다. 이는 네트워크에 보안 취약점을 노출시킬 수 있습니다."
+        } else {
+            $json.진단 결과 = "양호"
+            $json.현황 += "SNMP 서비스가 실행 중이지만, 'public' 또는 'private'와 같은 기본 커뮤니티 스트링을 사용하고 있지 않습니다."
+        }
     } else {
-        $json.현황 += "SNMP 서비스가 실행 중이지만, 'public' 또는 'private'와 같은 기본 커뮤니티 스트링을 사용하고 있지 않습니다."
+        $json.진단 결과 = "경고"
+        $json.현황 += "SNMP 설정을 검색할 수 없습니다."
     }
 } else {
+    $json.진단 결과 = "정보"
     $json.현황 += "SNMP 서비스가 실행되지 않고 있습니다."
 }
-Write-Host "-------------------------------------------진단 종료------------------------------------------"
+Write-Host "-------------------------------------------W-47 SNMP 서비스 커뮤니티 스트링 검사 종료------------------------------------------"
 
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-47.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약
 Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-47_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."

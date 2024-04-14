@@ -45,9 +45,9 @@ If ($screenSaveActive -eq "1") {
     $json.현황 += "스크린 세이버가 비활성화되어 있습니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDirectory\W-64_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-64.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 출력
