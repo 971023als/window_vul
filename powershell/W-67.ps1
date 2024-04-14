@@ -32,9 +32,9 @@ if ($policyValue.CrashOnAuditFail -eq 0) {
     $json.현황 += "감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안 요구사항에 맞게 설정되지 않았습니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-67_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-67.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 출력

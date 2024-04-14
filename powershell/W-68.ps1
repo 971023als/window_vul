@@ -33,9 +33,9 @@ if ($restrictAnonymous -eq 1 -and $restrictAnonymousSAM -eq 1) {
     $json.현황 += "익명 SAM 계정 접근을 제한하는 설정이 적절히 구성되지 않았습니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-68_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-68.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 출력
