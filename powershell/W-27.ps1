@@ -1,21 +1,21 @@
-# Define the JSON object for diagnostic results
+# 진단 결과를 위한 JSON 객체 정의
 $json = @{
-    Category = "Account Management"
+    Category = "계정 관리"
     Code = "W-27"
-    RiskLevel = "High"
-    DiagnosticItem = "Use of Decryptable Encryption for Password Storage"
-    DiagnosticResult = "Good" # Assuming good as the default state
+    RiskLevel = "높음"
+    DiagnosticItem = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+    DiagnosticResult = "양호" # 기본 상태를 '양호'로 가정
     CurrentStatus = @()
-    Recommendation = "Use of Decryptable Encryption for Password Storage"
+    Recommendation = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
 }
 
-# Request administrator privileges if not already running as admin
+# 관리자 권한 요청
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
     exit
 }
 
-# Setup environment
+# 환경 설정
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
@@ -31,24 +31,19 @@ systeminfo | Out-File "$rawDir\systeminfo.txt"
 Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config" | Out-File "$rawDir\iis_setting.txt"
 Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
 
-# Check IISADMIN service account
+# IISADMIN 서비스 계정 검사
 $serviceStatus = Get-Service W3SVC -ErrorAction SilentlyContinue
 if ($serviceStatus.Status -eq 'Running') {
     $iisAdminReg = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\IISADMIN" -Name "ObjectName" -ErrorAction SilentlyContinue
     if ($iisAdminReg.ObjectName -ne "LocalSystem") {
-        $json.CurrentStatus += "IISADMIN service is not running under the LocalSystem account, which does not require special action."
+        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되지 않고 있습니다. 특별한 조치가 필요하지 않습니다."
     } else {
-        $json.CurrentStatus += "IISADMIN service is running under the LocalSystem account, which is not recommended."
+        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되고 있습니다. 권장되지 않습니다."
     }
 } else {
-    $json.CurrentStatus += "World Wide Web Publishing Service is not running, eliminating the need for IIS-related security configuration review."
+    $json.CurrentStatus += "월드 와이드 웹 퍼블리싱 서비스가 실행되지 않고 있습니다. IIS 관련 보안 구성 검토가 필요 없습니다."
 }
 
-# Capture result data and output JSON
-"--------------------------------------W-27-------------------------------------" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\W3SVC" -Name "ObjectName" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\IISADMIN" -Name "ObjectName" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
-"net localgroup Administrators" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
 
 # Save the JSON results to a file
 $jsonFilePath = "$resultDir\W-27.json"

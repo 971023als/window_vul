@@ -1,11 +1,12 @@
+# 진단 결과를 위한 JSON 객체 정의
 $json = @{
-    Category = "Account Management"
+    Category = "계정 관리"
     Code = "W-28"
-    RiskLevel = "High"
-    DiagnosticItem = "Use of Decryptable Encryption for Password Storage"
-    DiagnosticResult = "Good"  # Assuming good as the default state
+    RiskLevel = "높음"
+    DiagnosticItem = "비밀번호 저장에 복호화 가능한 암호화 사용하지 않기"
+    DiagnosticResult = "양호"  # 기본 상태를 '양호'로 가정
     CurrentStatus = @()
-    Recommendation = "Avoid using decryptable encryption for password storage"
+    Recommendation = "비밀번호 저장에 복호화 가능한 암호화 사용을 피하세요"
 }
 
 # Request administrator privileges
@@ -31,7 +32,7 @@ $applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applic
 $applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
 $applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
 
-# Check for shortcut files in critical IIS paths
+# IIS 중요 경로에서 단축 파일 검사
 $serviceStatus = Get-Service W3SVC -ErrorAction SilentlyContinue
 if ($serviceStatus.Status -eq 'Running') {
     $shortcutFound = $False
@@ -41,23 +42,21 @@ if ($serviceStatus.Status -eq 'Running') {
             $shortcutFiles = Get-ChildItem -Path $path -Filter "*.lnk"
             if ($shortcutFiles) {
                 $shortcutFound = $True
-                "$path contains shortcut files (*.lnk), posing a security risk." | Out-File "$rawDir\W-28-findings.txt" -Append
+                "$path 경로에 단축 파일 (*.lnk)이 있습니다, 보안 위험이 있습니다." | Out-File "$rawDir\W-28-발견된_결과.txt" -Append
             }
         }
     }
 
     if ($shortcutFound) {
-        $json.CurrentStatus += "Shortcut files found in critical IIS paths, indicating a security risk."
-        $json.DiagnosticResult = "Vulnerable"
+        $json.CurrentStatus += "IIS 중요 경로에 단축 파일이 발견되었습니다, 보안 위험이 있습니다."
+        $json.DiagnosticResult = "취약"
     } else {
-        $json.CurrentStatus += "No unauthorized shortcut files found in critical IIS paths, system complies with security standards."
+        $json.CurrentStatus += "IIS 중요 경로에 비인가 단축 파일이 없습니다, 보안 기준을 준수하고 있습니다."
     }
 } else {
-    $json.CurrentStatus += "World Wide Web Publishing Service is not running, no need to check for shortcut files."
+    $json.CurrentStatus += "World Wide Web Publishing Service가 실행되지 않고 있습니다, 단축 파일 검사가 필요 없습니다."
 }
 
-# Output diagnostic results and capture data
-$json | ConvertTo-Json -Depth 3 | Out-File "$resultDir\W-Window-${computerName}-diagnostic_result.json"
-if (Test-Path "$rawDir\W-28-findings.txt") {
-    Get-Content "$rawDir\W-28-findings.txt" | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt"
-}
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-28.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
