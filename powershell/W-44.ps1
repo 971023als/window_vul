@@ -34,9 +34,9 @@ New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 # RDP 최소 암호화 수준 검사 시작
 Write-Host "------------------------------------------W-44 RDP 최소 암호화 수준 검사 시작------------------------------------------"
 $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
-$minEncryptionLevel = (Get-ItemProperty -Path $regPath -Name "MinEncryptionLevel").MinEncryptionLevel
+$minEncryptionLevel = (Get-ItemProperty -Path $regPath -Name "MinEncryptionLevel" -ErrorAction SilentlyContinue).MinEncryptionLevel
 
-if ($minEncryptionLevel -gt 1) {
+if ($minEncryptionLevel -and $minEncryptionLevel -gt 1) {
     $json."진단 결과" = "양호"
     $json.현황 += "RDP 최소 암호화 수준이 적절히 설정되어 있습니다."
 } else {
@@ -48,11 +48,11 @@ Write-Host "-------------------------------------------W-44 RDP 최소 암호화
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-44.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약
-Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-44_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
+# The original script incorrectly references a file path that doesn't match the actual output location
+Write-Host "결과 요약이 $jsonFilePath 에 저장되었습니다."
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
