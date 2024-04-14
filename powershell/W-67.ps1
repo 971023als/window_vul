@@ -1,46 +1,47 @@
-# JSON 데이터 초기화
+# Initialize JSON data structure
 $json = @{
-    분류 = "보안관리"
-    코드 = "W-67"
-    위험도 = "상"
-    진단 항목 = "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "보안 감사를 로그할 수 없는 경우 즉시 시스템 종료 정책을 적절히 설정"
+    Category = "Security Management"
+    Code = "W-67"
+    RiskLevel = "High"
+    DiagnosticItem = "Shut down system immediately if unable to log security audits"
+    DiagnosticResult = "Good"  # Assuming good as the default value
+    Status = @()
+    Countermeasure = "Properly configure the policy to shut down the system if unable to log security audits"
 }
 
-# 관리자 권한 확인
+# Check and request administrator privileges
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSCommandPath" -Verb RunAs
+    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
     exit
 }
 
-# 초기 설정 및 디렉터리 생성
+# Setup environment and directories
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDir, $resultDir | Out-Null
+New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
 
-# 감사 실패 시 시스템 충돌 설정 확인
-$policyValue = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "CrashOnAuditFail"
-
-if ($policyValue.CrashOnAuditFail -eq 0) {
-    $json.현황 += "감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안에 적합하게 설정되었습니다."
-} else {
-    $json.진단 결과 = "취약"
-    $json.현황 += "감사 실패 시 시스템 충돌 설정[CrashOnAuditFail]이 보안 요구사항에 맞게 설정되지 않았습니다."
+# Check the system policy for handling audit failures
+try {
+    $policyValue = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "CrashOnAuditFail"
+    if ($policyValue.CrashOnAuditFail -eq 1) {
+        $json.DiagnosticResult = "Good"
+        $json.Status += "The system is configured to shut down if it is unable to log security audits, enhancing security."
+    } else {
+        $json.DiagnosticResult = "Vulnerable"
+        $json.Status += "The system is not configured to shut down if it is unable to log security audits, which may pose a security risk."
+    }
+} catch {
+    $json.DiagnosticResult = "Error"
+    $json.Status += "Failed to retrieve the policy setting for audit failure handling."
 }
 
-# JSON 결과를 파일에 저장
+# Save JSON results to a file
 $jsonFilePath = "$resultDir\W-67.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "Diagnostic results have been saved: $jsonFilePath"
 
-# 결과 요약 및 출력
-Get-Content -Path "$resultDir\W-67_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
-Write-Host "결과가 $resultDir\security_audit_summary.txt 에 저장되었습니다."
-
-# 정리 작업 및 스크립트 종료
+# Clean up and exit script
 Remove-Item -Path "$rawDir\*" -Force
-Write-Host "스크립트를 종료합니다."
+Write-Host "Script has completed. Results have been saved to $resultDirectory."
