@@ -10,8 +10,8 @@ $json = @{
 }
 
 # 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
     exit
 }
 
@@ -20,7 +20,7 @@ $computerName = $env:COMPUTERNAME
 $rawDirectory = "C:\Window_${computerName}_raw"
 $resultDirectory = "C:\Window_${computerName}_result"
 
-Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
+Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
 
 # Remote Registry 서비스 상태 검사
@@ -34,12 +34,12 @@ If ($remoteRegistryStatus -and $remoteRegistryStatus.Status -eq 'Running') {
 }
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-59.json"
+$jsonFilePath = "$resultDirectory\W-59.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약 및 저장
-Get-Content -Path "$resultDirectory\W-59_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+Get-Content -Path "$jsonFilePath" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
 
 Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
 
