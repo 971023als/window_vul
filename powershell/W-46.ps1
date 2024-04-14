@@ -32,7 +32,7 @@ Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyConti
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
 # SNMP 서비스 상태 검사
-Write-Host "------------------------------------------W-46 SNMP 서비스 상태 검사------------------------------------------"
+Write-Host "------------------------------------------W-46 SNMP 서비스 상태 검사 시작------------------------------------------"
 $snmpService = Get-Service -Name "SNMP" -ErrorAction SilentlyContinue
 if ($snmpService -and $snmpService.Status -eq "Running") {
     $json.진단 결과 = "경고"
@@ -40,16 +40,12 @@ if ($snmpService -and $snmpService.Status -eq "Running") {
 } else {
     $json.현황 += "SNMP 서비스가 실행되지 않고 있습니다. 이는 추가 보안을 위한 긍정적인 상태입니다."
 }
-Write-Host "-------------------------------------------진단 종료------------------------------------------"
+Write-Host "-------------------------------------------W-46 SNMP 서비스 상태 검사 종료------------------------------------------"
 
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-46.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
-
-# 결과 요약
-Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-46_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
