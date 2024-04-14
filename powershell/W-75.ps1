@@ -38,9 +38,9 @@ if ($LegalNoticeCaption -ne $null -or $LegalNoticeText -ne $null) {
     $json.현황 += "로그인 시 법적 고지가 설정되지 않았습니다."
 }
 
-# Convert the JSON object to a JSON string and save to a file
-$jsonPath = "$resultDir\W-75_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-75.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # Cleanup

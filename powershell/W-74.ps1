@@ -37,9 +37,9 @@ if ($enableForcedLogOff -eq 1 -and $autoDisconnect -eq 15) {
     $json.현황 += "서버에서 강제 로그오프 및 자동 연결 끊김 설정이 적절하지 않습니다."
 }
 
-# Convert the JSON object to a JSON string and save to a file
-$jsonPath = "$resultDir\W-74_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-74.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # Cleanup
