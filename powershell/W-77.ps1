@@ -46,9 +46,9 @@ if ($vulnerableUsers.Count -gt 0) {
     $json.diagnostic_result = "Good"
 }
 
-# 업데이트된 JSON 데이터 저장
-$jsonPath = "$resultDir\security_data.json"
-$json | ConvertTo-Json | Set-Content $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-77.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
 # 결과 요약
 Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
