@@ -41,12 +41,12 @@ If (-not $softwareInstalled) {
 }
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-62.json"
+$jsonFilePath = "$resultDirectory\W-62.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Output "진단 결과가 저장되었습니다: $jsonPath"
+Write-Output "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약 및 저장
-Get-Content -Path "$resultDirectory\W-62_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+Get-Content -Path "$jsonFilePath" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
 
 Write-Output "Results have been saved to $resultDirectory\security_audit_summary.txt."
 
