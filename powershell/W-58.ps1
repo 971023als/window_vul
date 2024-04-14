@@ -10,36 +10,37 @@ $json = @{
 }
 
 # 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell.exe -ArgumentList "Start-Process PowerShell.exe -ArgumentList '-ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs"
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
     exit
 }
 
 # 환경 설정 및 디렉터리 준비
-$OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $Host.UI.RawUI.ForegroundColor = "Green"
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction Ignore
 New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
 
-# 정책 설정 기록 및 결과 처리
-# 여기서는 실제 정책 설정을 검사하는 로직이 필요하나, 예시로 간단한 메시지를 저장함
-# 실제 사용 시에는 정책에 따른 검사 로직을 구현해야 함
+# 로그 관리 정책 설정 검사 (실제 구현 필요)
+# 여기에 실제 로그 검사 로직 구현
+# 예: 로그 파일 위치 검사, 로그 사이즈 관리 정책, 로그 보관 기간 등
+# PowerShell cmdlets, WMI, or registry settings can be used here for actual checks
 
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-58.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Output "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약 및 저장
-Get-Content "$resultDir\W-58_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
+Get-Content $jsonFilePath | Out-File "$resultDir\security_audit_summary.txt"
 
-Write-Output "Results have been saved to $resultDir\security_audit_summary.txt."
+Write-Host "Results have been saved to $resultDir\security_audit_summary.txt."
 
 # 정리 작업
 Remove-Item "$rawDir\*" -Force
 
-Write-Output "Script has completed."
+Write-Host "Script has completed."
