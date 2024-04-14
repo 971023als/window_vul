@@ -48,6 +48,7 @@ Try {
 Catch {
     $json.진단 결과 = "오류"
     $json.현황 += "OS 버전 및 서비스팩 진단 중 오류가 발생했습니다."
+    Write-Host "오류: $_"
 }
 
 Write-Host "-------------------------------------------진단 종료------------------------------------------"
@@ -56,7 +57,7 @@ Write-Host "-------------------------------------------진단 종료------------
 $jsonFilePath = "$resultDir\W-43.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
-Write-Host "결과가 저장되었습니다: $jsonPath"
+Write-Host "결과가 저장되었습니다: $jsonFilePath"
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
