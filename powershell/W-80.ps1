@@ -53,6 +53,10 @@ if (Test-Path $policyPath) {
     }
 }
 
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-80.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
 # 결과 요약 및 저장
 Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
 
