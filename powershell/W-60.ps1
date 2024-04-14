@@ -10,8 +10,8 @@ $json = @{
 }
 
 # 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
     exit
 }
 
@@ -33,7 +33,7 @@ foreach ($key in $eventLogKeys) {
     $retention = (Get-ItemProperty -Path $path -Name "Retention").Retention
     If ($maxSize -lt 10485760 -or $retention -eq 0) {
         $inadequateSettings = $True
-        $json.현황 += "MaxSize for $key: $maxSize, Retention for $key: $retention"
+        $json.현황 += "$key log is inadequately configured with MaxSize: $maxSize bytes and Retention: $retention."
     }
 }
 
@@ -44,12 +44,12 @@ If ($inadequateSettings) {
 }
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-60.json"
+$jsonFilePath = "$resultDirectory\W-60.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약 및 저장
-Get-Content -Path "$resultDirectory\W-60_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+Get-Content -Path $jsonFilePath | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
 
 Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
 
