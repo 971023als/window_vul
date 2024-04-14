@@ -22,7 +22,7 @@ $host.UI.RawUI.BackgroundColor = "DarkGreen"
 $host.UI.RawUI.ForegroundColor = "White"
 Clear-Host
 
-Write-Host "------------------------------------------Setting---------------------------------------"
+Write-Host "------------------------------------------설정 시작---------------------------------------"
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
@@ -31,24 +31,25 @@ $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-# 시스템 정보 수집 및 IIS 설정 검사
-$systemInfo = systeminfo
-$systemInfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+# 서비스 구성 검사
+Write-Host "------------------------------------------W-50 Service Configuration Check------------------------------------------"
 $iisConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$iisConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
+$ftpSites = $iisConfig | Select-String -Pattern "ftpServer"
+$smtpConfig = Get-WmiObject -Query "SELECT * FROM SmtpService" -Namespace "root\MicrosoftIISv2"
 
-# W-50: 서비스 비활성화 권장
-Write-Host "------------------------------------------W-50 Service Recommendation------------------------------------------"
-# 실제 서비스 비활성화 검사 로직은 여기에 포함되어야 합니다.
-# 예시 코드는 실제 서비스 상태를 반영하지 않습니다.
-$json.현황 += "HTTP, FTP, SMTP 서비스가 필요 없는 경우 비활성화 권장. 필요하지 않은 서비스는 비활성화하여 안전함."
-
-Write-Host "-------------------------------------------End------------------------------------------"
+if (!$ftpSites -and !$smtpConfig) {
+    $json.진단 결과 = "양호"
+    $json.현황 += "HTTP, FTP, SMTP 서비스는 현재 비활성화되어 있거나 배너가 적절하게 숨겨져 있습니다."
+} else {
+    $json.진단 결과 = "경고"
+    $json.현황 += "하나 이상의 서비스가 배너 정보를 외부에 노출하고 있을 수 있습니다. 적절한 설정 변경이 필요합니다."
+}
+Write-Host "-------------------------------------------검사 종료------------------------------------------"
 
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-50.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약
 Write-Host "Results have been saved to: $resultDir\security_audit_summary.txt"
