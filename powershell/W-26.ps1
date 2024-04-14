@@ -1,12 +1,18 @@
+# 진단 JSON 객체 초기화
 $json = @{
-    Classification = "계정 관리"
-    Code = "W-26"
-    Risk = "높음"
-    Diagnosis = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-    Result = "양호"  # 기본 상태를 '양호'로 가정
-    Status = @()
-    Recommendation = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+    분류 = "계정 관리"
+    코드 = "W-26"
+    위험도 = "높음"
+    진단항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+    진단결과 = "양호"  # 기본 상태를 '양호'로 가정
+    현황 = @()
+    대응방안 = "비밀번호 저장을 위한 복호화 불가능한 암호화 사용"
 }
+
+# 이 JSON 구조는 계정 관리 카테고리의 보안 진단을 위해 사용됩니다.
+# '진단항목'은 비밀번호를 저장할 때 복호화 가능한 암호화 방법을 사용하는지를 평가합니다.
+# '대응방안'은 보다 안전한 비밀번호 저장 방법을 제안하며, 비밀번호를 저장할 때 복호화 불가능한 암호화를 사용할 것을 권장합니다.
+
 
 # 관리자 권한 요청
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {

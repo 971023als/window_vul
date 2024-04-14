@@ -1,13 +1,18 @@
-# Initialize diagnostics JSON object
+# 진단 JSON 객체 초기화
 $json = @{
     분류 = "계정관리"
     코드 = "W-25"
     위험도 = "상"
-    진단 항목 = "Use of decryptable encryption to store passwords"
-    진단 결과 = "양호" # Assuming 'Good' as the default
+    진단 항목 = "암호를 저장하기 위한 복호화 가능한 암호화 사용"
+    진단 결과 = "양호"  # '양호'라고 가정
     현황 = @()
-    대응방안 = "Use decryptable encryption to store passwords"
+    대응방안 = "암호 저장을 위한 복호화 불가능한 암호화 사용"
 }
+
+# 해당 JSON 구조는 계정 관리에 대한 보안 진단 결과를 저장하기 위해 사용됩니다.
+# '진단 항목'은 암호를 저장할 때 복호화 가능한 암호화 방식을 사용하는지 여부를 평가합니다.
+# '대응방안'은 보다 안전한 방법으로 암호를 저장하기 위해 복호화가 불가능한 암호화 기술을 사용할 것을 권장합니다.
+
 
 # 관리자 권한 확인 및 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
