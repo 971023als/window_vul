@@ -38,9 +38,9 @@ if ($hotfixCheck) {
     $json.현황 += "핫픽스 KB3214628이 설치되어 있지 않습니다. 이는 보안 상태가 안전함을 나타냅니다."
 }
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-55_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-55.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Host "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 저장
