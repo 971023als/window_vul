@@ -52,6 +52,6 @@ if ($serviceRunning -and $vulnerableFound) {
     $json.Status += "Compliant: No vulnerable directories found or IIS service not running."
 }
 
-# Capture results and output JSON
-$vulnerableFound | Out-File "$($directories[1])\W-Window-${computerName}-rawdata.txt" -Append
-$json | ConvertTo-Json -Depth 3 | Out-File "$($directories[1])\W-Window-${computerName}-diagnostic_result.json"
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-26.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

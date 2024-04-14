@@ -47,6 +47,6 @@ If (Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -
     $json.현황 += If ($enableParentPaths) { "부모 경로 사용 설정이 활성화되어 있으나, IIS 서비스 비활성화 상태." } Else { "부모 경로 사용 설정이 비활성화되어 있어 보안 준수." }
 }
 
-# Save the diagnostic results to a file and capture configuration data
-$json | ConvertTo-Json -Depth 3 | Out-File "$($directories[1])\W-Window-$($computerName)-diagnostic_result.json"
-$applicationHostConfig | Select-String -Pattern "enableParentPaths" | Out-File "$($directories[1])\W-Window-$($computerName)-rawdata.txt" -Append
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-25.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

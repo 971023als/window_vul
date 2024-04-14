@@ -51,5 +51,5 @@ if (Test-Path $securityPolicyFile) {
 }
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result_1.json"
+$jsonFilePath = "$resultDir\W-05.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

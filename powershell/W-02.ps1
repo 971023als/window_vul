@@ -57,6 +57,6 @@ if ($isActive) {
 }
 
 # JSON 객체를 JSON 파일로 저장
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\diagnostic_result_$computerName.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\W-02.json"
 
 Write-Host "스크립트 실행 완료"

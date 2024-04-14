@@ -52,5 +52,5 @@ if ($minimumPasswordAge -gt 0) {
 }
 
 # Save the JSON results to a file named "1.json"
-$jsonFilePath = "$resultDir\1.json"
+$jsonFilePath = "$resultDir\W-12.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

@@ -50,5 +50,6 @@ Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\W3SVC" -Name "Ob
 Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\IISADMIN" -Name "ObjectName" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
 "net localgroup Administrators" | Out-File "$resultDir\W-Window-$computerName-rawdata.txt" -Append
 
-# Save JSON results to a file
-$json | ConvertTo-Json -Depth 3 | Out-File "$resultDir\W-Window-$computerName-diagnostic_result.json"
+# Save the JSON results to a file
+$jsonFilePath = "$resultDir\W-27.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

@@ -74,5 +74,5 @@ if ($policyInfo -match "최대암호사용기간\s*:\s*(\d+)") {
 }
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "${resultDir}\W-Window-${computerName}-diagnostic_result.json"
+$jsonFilePath = "${resultDir}\W-10.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

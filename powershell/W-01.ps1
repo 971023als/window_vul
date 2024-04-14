@@ -45,7 +45,7 @@ if ($adminNameChange -eq $null) {
 }
 
 # 진단 결과 JSON 파일로 저장
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultPath\diagnostic_result.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultPath\W-01.json"
 
 # 이후에는 결과 보고서를 생성하는 코드를 추가할 수 있습니다.
 Write-Host "스크립트 실행 완료"

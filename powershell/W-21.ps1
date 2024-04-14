@@ -54,6 +54,6 @@ if ($servicesStatus) {
 }
 
 # Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$jsonFilePath = "$resultDir\W-21.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 

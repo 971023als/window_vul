@@ -55,7 +55,7 @@ foreach ($user in $users) {
 }
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultPath\W-Window-${computerName}-diagnostic_result_1.json"
+$jsonFilePath = "$resultPath\W-03.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
 Write-Host "스크립트 실행 완료"

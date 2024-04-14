@@ -61,5 +61,5 @@ if ($interactiveLogonRight) {
 $json.결론 = "If necessary, adjust the policy to ensure compliance."
 
 # Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+$jsonFilePath = "$resultDir\W-14.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

@@ -51,5 +51,5 @@ if ($policyAnalysis) {
 }
 
 # Save the JSON results to a file named "1.json"
-$jsonFilePath = "$resultDir\1.json"
+$jsonFilePath = "$resultDir\W-13.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
