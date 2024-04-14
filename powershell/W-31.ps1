@@ -9,8 +9,8 @@ $json = @{
 }
 
 # 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "-File",("`"" + $MyInvocation.MyCommand.Definition + "`""), "-Verb", "RunAs"
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"" -Verb RunAs
     exit
 }
 
@@ -29,15 +29,15 @@ Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyConti
 New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
 # 로컬 보안 정책 내보내기 및 기타 초기 설정
-secedit /EXPORT /CFG "$rawDir\Local_Security_Policy.txt"
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
 New-Item -Path "$rawDir\compare.txt" -ItemType File -Force | Out-Null
-$installPath = (Get-Location).Path | Out-File -FilePath "$rawDir\install_path.txt"
+(Get-Location).Path | Out-File -FilePath "$rawDir\install_path.txt"
 systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
 
 # IIS 설정 복사
 $applicationHostConfig = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
 Get-Content -Path $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Set-Content -Path "$rawDir\iis_path1.txt"
+Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
 
 # MetaBase.xml 복사 (해당하는 경우)
 $metaBasePath = "$env:WINDIR\system32\inetsrv\MetaBase.xml"
@@ -51,14 +51,11 @@ If (Test-Path $metaBasePath) {
 Write-Output "------------------------------------------W-31------------------------------------------"
 # W-31 결과 출력. 예를 들어:
 If ($true) { # 조건에 따라 변경하세요.
-    "W-31,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "정책 준수: 설명에 맞게 적절한 설정이 구성되어 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    "W-31,O,| 정책 준수: 설명에 맞게 적절한 설정이 구성되어 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
 } Else {
-    "W-31,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    "정책 위반: 설명에 맞지 않게 설정이 구성되어 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
+    "W-31,X,| 정책 위반: 설명에 맞지 않게 설정이 구성되어 있습니다." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
 }
 
-# 결과 데이터
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-31.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
