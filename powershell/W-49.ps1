@@ -22,7 +22,7 @@ $host.UI.RawUI.BackgroundColor = "DarkGreen"
 $host.UI.RawUI.ForegroundColor = "White"
 Clear-Host
 
-Write-Host "------------------------------------------Setting---------------------------------------"
+Write-Host "------------------------------------------설정 시작---------------------------------------"
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
@@ -34,7 +34,7 @@ New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 # DNS 서비스 동적 업데이트 설정 검사
 Write-Host "------------------------------------------W-49 DNS Service Dynamic Update Check------------------------------------------"
 $dnsService = Get-Service -Name "DNS" -ErrorAction SilentlyContinue
-if ($dnsService.Status -eq "Running") {
+if ($dnsService -and $dnsService.Status -eq "Running") {
     $allowUpdate = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\DNS Server\Zones" -ErrorAction SilentlyContinue).AllowUpdate
     if ($allowUpdate -eq "0") {
         $json.진단 결과 = "양호"
@@ -44,6 +44,7 @@ if ($dnsService.Status -eq "Running") {
         $json.현황 += "DNS 서비스가 활성화되어 있으나 동적 업데이트 권한이 설정되어 있는 경우, 이는 위험합니다."
     }
 } else {
+    $json.진단 결과 = "양호"
     $json.현황 += "DNS 서비스가 비활성화되어 있으며, 이는 안전합니다."
 }
 Write-Host "-------------------------------------------End------------------------------------------"
@@ -51,14 +52,14 @@ Write-Host "-------------------------------------------End----------------------
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-49.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약
-Write-Host "Results have been saved to: C:\Window_$computerName\_result\security_audit_summary.txt"
+Write-Host "결과가 저장된 경로: $resultDir\security_audit_summary.txt"
 Get-Content "$resultDir\W-49_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
 
 # 정리 작업
-Write-Host "Cleaning up..."
+Write-Host "정리 작업 중..."
 Remove-Item "$rawDir\*" -Force
 
-Write-Host "Script has ended."
+Write-Host "스크립트가 종료되었습니다."
