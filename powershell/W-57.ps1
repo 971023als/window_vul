@@ -16,14 +16,17 @@ If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 # 환경 설정 및 디렉터리 준비
-$OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $Host.UI.RawUI.ForegroundColor = "Green"
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction Ignore
 New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
+
+# Export local security settings to file first
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
 
 # 감사 정책 설정 검사
 $securitySettings = Get-Content "$rawDir\Local_Security_Policy.txt"
@@ -31,7 +34,7 @@ $auditSettings = @("AuditLogonEvents", "AuditPrivilegeUse", "AuditPolicyChange",
 $incorrectlyConfigured = $false
 
 foreach ($setting in $auditSettings) {
-    if ($securitySettings -match "$setting.*0") {
+    if ($securitySettings -notmatch "$setting.*1") { # Assuming 1 is enabled
         $incorrectlyConfigured = $true
         $json.현황 += "$setting: No Auditing"
     }
@@ -46,10 +49,10 @@ if ($incorrectlyConfigured) {
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-57.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약 및 저장
-Get-Content "$resultDir\W-57_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
+Get-Content $jsonFilePath | Out-File "$resultDir\security_audit_summary.txt"
 
 Write-Host "Results have been saved to $resultDir\security_audit_summary.txt."
 
