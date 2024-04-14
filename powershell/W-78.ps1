@@ -57,6 +57,10 @@ if ($conditionsMet) {
     "보안 정책 분석 결과: 하나 이상의 조건 불만족" | Out-File $resultFilePath -Append
 }
 
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-78.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
 # 결과 요약
 Get-Content $resultFilePath | Out-File "$resultDir\security_audit_summary.txt"
 

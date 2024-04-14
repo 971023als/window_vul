@@ -16,8 +16,8 @@ If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $computerName = $env:COMPUTERNAME
-$rawDirectory = "C:\Windows_Security_Audit\$computerName`_raw"
-$resultDirectory = "C:\Windows_Security_Audit\$computerName`_result"
+$rawDirectory = "C:\Windows_Security_Audit\${computerName}_raw"
+$resultDirectory = "C:\Windows_Security_Audit\${computerName}_result"
 
 # 기존 정보 삭제 및 새 디렉터리 생성
 Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
@@ -46,9 +46,9 @@ If ($screenSaveActive -eq "1") {
 }
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-64.json"
+$jsonFilePath = "$resultDirectory\W-64.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 출력
 Write-Host "Results have been saved to $resultDirectory 폴더에 저장되었습니다."
