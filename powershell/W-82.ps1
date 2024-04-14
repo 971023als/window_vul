@@ -36,6 +36,10 @@ try {
     "W-82: SQL Server 인증 모드 설정을 확인하는 중 오류 발생." | Out-File "$resultDir\W-82-${computerName}-result.txt"
 }
 
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-82.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
 # 스크립트 종료 전 임시 파일 삭제
 # 이 경우에는 임시 파일을 사용하지 않으므로 해당 코드는 삭제합니다.
 

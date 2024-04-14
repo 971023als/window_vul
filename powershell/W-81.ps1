@@ -38,6 +38,10 @@ if ($matches[1]) {
     "W-81: 암호 최대 사용 기간 데이터를 찾을 수 없음." | Out-File "$resultDir\W-81-${computerName}-result.txt"
 }
 
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-81.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
 # 스크립트 종료 전 임시 파일 삭제
 Remove-Item "$env:TEMP\secpol.cfg" -Force
 
