@@ -14,55 +14,54 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
     exit
 }
-
-# Configure the console environment
+# 콘솔 환경 설정
 function Setup-Console {
     chcp 437 | Out-Null
     $host.UI.RawUI.BackgroundColor = "DarkGreen"
     $host.UI.RawUI.ForegroundColor = "Green"
     Clear-Host
-    Write-Host "Initializing audit environment..."
+    Write-Host "감사 환경을 초기화 중입니다..."
 }
 
-# Setup audit environment
+# 감사 환경 설정
 function Initialize-AuditEnvironment {
     $global:computerName = $env:COMPUTERNAME
     $global:rawDir = "C:\Audit_${computerName}_Raw"
     $global:resultDir = "C:\Audit_${computerName}_Results"
 
-    # Clean up previous data and set up directories for current audit
+    # 이전 데이터 정리 및 현재 감사를 위한 디렉터리 설정
     Remove-Item $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item $rawDir, $resultDir -ItemType Directory | Out-Null
     secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
     systeminfo | Out-File "$rawDir\SystemInfo.txt"
 }
 
-# Perform NetBIOS Configuration Check
+# NetBIOS 구성 검사
 function Check-NetBIOSConfiguration {
-    Write-Host "Checking NetBIOS Configuration..."
+    Write-Host "NetBIOS 구성을 검사 중입니다..."
     $netBIOSConfig = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.TcpipNetbiosOptions -eq 2 }
 
     if ($netBIOSConfig) {
-        "W-36, Good, | NetBIOS over TCP/IP is disabled, aligning with secure configuration recommendations." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
-        Write-Host "NetBIOS over TCP/IP is disabled - configuration is secure."
+        "W-36, Good, | NetBIOS over TCP/IP가 비활성화되어 있으며, 보안 구성 권장사항에 부합합니다." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
+        Write-Host "NetBIOS over TCP/IP가 비활성화되어 있습니다 - 구성이 안전합니다."
     } else {
-        "W-36, Attention Needed, | Review NetBIOS over TCP/IP settings for potential security improvements." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
-        Write-Host "Attention Needed: Review NetBIOS over TCP/IP settings."
+        "W-36, Attention Needed, | 보안 개선을 위해 NetBIOS over TCP/IP 설정을 검토하세요." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
+        Write-Host "주의 필요: NetBIOS over TCP/IP 설정을 검토하세요."
     }
 }
 
-# Summarize audit findings and perform cleanup
+# 감사 결과 정리 및 청소
 function Finalize-Audit {
-    Write-Host "Audit Completed. Review the results in $resultDir."
+    Write-Host "감사 완료. 결과는 $resultDir에서 확인하세요."
     Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
 }
 
-# Main execution flow
+# 주 실행 흐름
 Setup-Console
 Initialize-AuditEnvironment
 Check-NetBIOSConfiguration
 Finalize-Audit
 
-# Save JSON results to a file
+# JSON 결과 파일 저장
 $jsonFilePath = "$resultDir\W-36.json"
 $auditParams | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
