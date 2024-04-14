@@ -52,12 +52,14 @@ if ($dnsService.Status -eq "Running") {
 }
 Write-Host "-------------------------------------------W-41 DNS 보안 설정 점검 종료------------------------------------------"
 
-# 결과 요약
-Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath "$resultDir\security_audit_summary.txt"
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-41.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
 Remove-Item "$rawDir\*" -Force
 
 Write-Host "스크립트를 종료합니다."
+

@@ -56,4 +56,6 @@ Try {
     Write-Host "오류 발생: $_"
 }
 
-Write-Host "------------------------------------------설정 종료-------------------------------------------"
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-40.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
