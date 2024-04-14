@@ -1,60 +1,65 @@
 $json = @{
-    Category = "Account Management"
+    Category = "계정 관리"
     Code = "W-30"
-    RiskLevel = "High"
-    DiagnosticItem = "Use of Decryptable Encryption for Password Storage"
-    DiagnosticResult = "Good"  # Assuming good as the default state
+    RiskLevel = "높음"
+    DiagnosticItem = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+    DiagnosticResult = "양호"  # 기본 상태를 '양호'로 가정
     CurrentStatus = @()
-    Recommendation = "Use non-decryptable encryption for password storage"
+    Recommendation = "비밀번호 저장을 위해 비복호화 가능한 암호화 사용"
 }
 
-# Request Administrator Privileges
+# 관리자 권한 요청
 If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"" -Verb RunAs
     exit
 }
 
-# Console Configuration
+# 콘솔 설정
 chcp 437 > $null
 $host.UI.RawUI.BackgroundColor = "DarkGreen"
 $host.UI.RawUI.ForegroundColor = "Green"
 Clear-Host
 
-# Setup Environment
+# 환경 설정
 $computerName = $env:COMPUTERNAME
 $rawDir = "C:\Window_${computerName}_raw"
 $resultDir = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
-# Export Local Security Policy
+# 로컬 보안 정책 내보내기
 secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
 
-# Save Installation Path
-(Get-Location).Path | Out-File -FilePath "$rawDir\install_path.txt"
+# 설치 경로 저장
+(Get-Location).Path | Out-File -FilePath "$rawDir\설치_경로.txt"
 
-# Save System Information
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+# 시스템 정보 저장
+systeminfo | Out-File -FilePath "$rawDir\시스템_정보.txt"
 
-# IIS Configuration Analysis
+# IIS 설정 분석
 $applicationHostConfig = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-Get-Content -Path $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+Get-Content -Path $applicationHostConfig | Out-File -FilePath "$rawDir\iis_설정.txt"
+Select-String -Path "$rawDir\iis_설정.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_경로_정보.txt"
 
-# Copy MetaBase.xml if applicable
+# MetaBase.xml 복사 (해당되는 경우)
 $metaBasePath = "$env:WINDIR\system32\inetsrv\MetaBase.xml"
 If (Test-Path $metaBasePath) {
-    Get-Content -Path $metaBasePath | Out-File -FilePath "$rawDir\iis_setting.txt" -Append
+    Get-Content -Path $metaBasePath | Out-File -FilePath "$rawDir\iis_설정.txt" -Append
 }
 
-# W-30 Diagnostic Check
+# W-30 진단 검사
 If ((Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue).Status -eq "Running") {
     $asaFiles = Select-String -Path "$rawDir\iis_setting.txt" -Pattern "\.asax|\.asa"
     If ($asaFiles) {
-        "W-30,X,| Policy Violation: Unrestricted access to .asa or .asax files detected." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+        "W-30,X,| 정책 위반: .asa 또는 .asax 파일에 대한 제한이 없습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-결과.txt" -Append
     } Else {
-        "W-30,O,| Policy Compliance: .asa and .asax files are appropriately restricted." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+        "W-30,O,| 정책 준수: .asa 및 .asax 파일이 적절히 제한되어 있습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-결과.txt" -Append
     }
 } Else {
-    "W-30,O,| World Wide Web Publishing Service is not running: No need to check for .asa or .asax files." | Out-File -FilePath "$resultDir\W-Window-$computerName-result.txt" -Append
+    "W-30,O,| 월드 와이드 웹 퍼블리싱 서비스가 실행되지 않고 있습니다: .asa 또는 .asax 파일 검사가 필요 없습니다." | Out-File -FilePath "$resultDir\W-Window-$computerName-결과.txt" -Append
 }
+
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-30.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

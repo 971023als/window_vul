@@ -76,8 +76,6 @@ if ($isSecure -eq $false) {
     $json.현황 = @("FTP 디렉토리 접근권한이 적절히 설정됨.")
 }
 
-# JSON 데이터를 파일로 저장합니다.
-$jsonFilePath = "C:\path_to_your_output\diagnostics_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonFilePath
-
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-39.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

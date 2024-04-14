@@ -46,9 +46,7 @@ if ($isSecure) {
     $json.현황 += "EVERYONE 그룹에 대한 FullControl 접근 권한이 발견되어 취약합니다."
 }
 
-# Convert the updated object to JSON and save it to a file
-$jsonString = $json | ConvertTo-Json -Depth 5
-$jsonString | Out-File -FilePath "C:\path_to_your_output\diagnostics_results.json"
-
-Write-Host "진단 결과가 저장되었습니다: C:\path_to_your_output\diagnostics_results.json"
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-38.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 

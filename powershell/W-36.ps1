@@ -64,3 +64,7 @@ Setup-Console
 Initialize-AuditEnvironment
 Check-NetBIOSConfiguration
 Finalize-Audit
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-36.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

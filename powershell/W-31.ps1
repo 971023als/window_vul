@@ -59,3 +59,6 @@ If ($true) { # 조건에 따라 변경하세요.
 }
 
 # 결과 데이터
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-31.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

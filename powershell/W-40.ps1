@@ -48,9 +48,9 @@ Try {
         $json.현황 = @("특정 IP 주소에서만 FTP 접속이 허용되어 있습니다.")
     }
 
-    # JSON 데이터를 파일로 저장
-    $json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonFilePath
-    Write-Host "FTP 진단 결과가 저장되었습니다: $jsonFilePath"
+    # JSON 결과를 파일에 저장
+    $jsonFilePath = "$resultDir\W-40.json"
+    $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
 } Catch {
     Write-Host "오류 발생: $_"

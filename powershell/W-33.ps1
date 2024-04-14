@@ -53,8 +53,6 @@ function Analyze-IISConfiguration {
 Prepare-Environment
 Analyze-IISConfiguration
 
-# Export JSON Results
-$jsonPath = "$resultDir\W-Window-${computerName}_results.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonPath
-
-Write-Host "Audit results saved to $jsonPath"
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-33.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

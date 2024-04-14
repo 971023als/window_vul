@@ -51,9 +51,6 @@ If ((Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue).Status -eq "Runnin
     }
 }
 
-# JSON 결과 저장
-$json.현황 = $json.현황 -join "; "
-$jsonFilePath = "$resultDir\W-Window-${computerName}-diagnostic_result.json"
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-32.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-
-Write-Output "진단 결과 파일이 저장되었습니다: $jsonFilePath"

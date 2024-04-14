@@ -67,6 +67,6 @@ Initialize-Console
 Setup-AuditEnvironment
 Perform-WebDAVSecurityCheck
 
-# Summarize and cleanup
-Write-Host "Audit completed. Review the results in $resultDir."
-Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-35.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

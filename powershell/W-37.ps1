@@ -63,4 +63,6 @@ Setup-Directories
 Export-PolicyAndCollect-Info
 Audit-FTPServices
 
-Write-Host "Audit complete. Review the results in the Results directory."
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-37.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
