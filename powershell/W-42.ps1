@@ -36,25 +36,25 @@ New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 Write-Host "------------------------------------------W-42 RDS 상태 점검 시작------------------------------------------"
 $webService = Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue
 
-if ($webService.Status -eq "Running") {
+if ($webService -and $webService.Status -eq "Running") {
     $json.진단결과 = "위험"
     $json.현황 += "웹 서비스가 실행 중입니다. RDS(Remote Data Services)가 활성화되어 있을 수 있습니다."
     $json.대응방안 = "웹 서비스를 비활성화하거나 RDS 관련 구성을 제거하세요."
 } else {
+    $json.진단결과 = "양호"
     $json.현황 += "웹 서비스가 실행되지 않거나 설치되지 않았습니다. RDS 제거 상태가 양호합니다."
 }
+
+Write-Host "-------------------------------------------W-42 RDS 상태 점검 종료------------------------------------------"
 
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-42.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 
-Write-Host "-------------------------------------------W-42 RDS 상태 점검 종료------------------------------------------"
-
-# 결과 요약
 Write-Host "결과가 $jsonFilePath 에 저장되었습니다."
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
-Remove-Item "$rawDir\*" -Force
+Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
 
 Write-Host "스크립트를 종료합니다."
