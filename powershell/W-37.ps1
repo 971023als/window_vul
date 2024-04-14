@@ -1,5 +1,3 @@
-# PowerShell Script for Auditing Microsoft FTP Service
-
 # Define the audit configuration
 $auditConfig = @{
     Category    = "Account Management"
@@ -48,7 +46,7 @@ function Export-PolicyAndCollect-Info {
 function Audit-FTPServices {
     Write-Host "Auditing Microsoft FTP Service..."
     $ftpService = Get-Service -Name "MSFTPSVC" -ErrorAction SilentlyContinue
-    if ($ftpService.Status -eq "Running") {
+    if ($ftpService -and $ftpService.Status -eq "Running") {
         "W-37, Warning, | Microsoft FTP Service is running, which may present a vulnerability." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
         Write-Host "Warning: Microsoft FTP Service is running. Consider disabling if not required."
     } else {
@@ -63,6 +61,6 @@ Setup-Directories
 Export-PolicyAndCollect-Info
 Audit-FTPServices
 
-# JSON 결과를 파일에 저장
+# Save JSON results to a file
 $jsonFilePath = "$resultDir\W-37.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+$auditConfig | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
