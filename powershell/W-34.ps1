@@ -9,6 +9,17 @@ $auditParams = @{
     Mitigation = "Use of non-decryptable encryption for password storage"
 }
 
+# Request Administrator privileges if not already running with them
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
+    exit
+}
+
+$computerName = $env:COMPUTERNAME
+$dirs = @{
+    Raw = "C:\Window_${computerName}_raw"
+    Result = "C:\Window_${computerName}_result"
+}
 
 # 환경 설정
 function Initialize-Environment {

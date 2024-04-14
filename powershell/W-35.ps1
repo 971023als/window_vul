@@ -15,33 +15,33 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-# Set console environment
+# 콘솔 환경 설정
 function Initialize-Console {
     chcp 437 | Out-Null
     $host.UI.RawUI.BackgroundColor = "DarkGreen"
     $host.UI.RawUI.ForegroundColor = "Green"
     Clear-Host
-    Write-Host "Setting up the environment..."
+    Write-Host "환경을 설정하고 있습니다..."
 }
 
-# Prepare the audit environment
+# 감사 환경 준비
 function Setup-AuditEnvironment {
     $global:computerName = $env:COMPUTERNAME
     $global:rawDir = "C:\Audit_${computerName}_RawData"
     $global:resultDir = "C:\Audit_${computerName}_Results"
 
-    # Cleanup previous data and prepare new directories
+    # 이전 데이터 정리 및 새 디렉터리 준비
     Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-    # Export local security policy and system information
+    # 로컬 보안 정책 및 시스템 정보 내보내기
     secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
     systeminfo | Out-File "$rawDir\SystemInfo.txt"
 }
 
-# WebDAV Security Audit
+# WebDAV 보안 감사 수행
 function Perform-WebDAVSecurityCheck {
-    Write-Host "Performing WebDAV Security Check..."
+    Write-Host "WebDAV 보안 검사를 수행하고 있습니다..."
     $serviceStatus = (Get-Service W3SVC -ErrorAction SilentlyContinue).Status
 
     if ($serviceStatus -eq "Running") {
@@ -51,20 +51,20 @@ function Perform-WebDAVSecurityCheck {
             foreach ($config in $webDavConfigurations) {
                 $config.Line | Out-File -FilePath "$rawDir\WebDAVConfigDetails.txt" -Append
             }
-            Write-Host "Review required: WebDAV configurations found. Details in WebDAVConfigDetails.txt"
+            Write-Host "검토 필요: WebDAV 구성이 발견되었습니다. 자세한 내용은 WebDAVConfigDetails.txt 파일을 참조하세요."
         } else {
-            Write-Host "No action required: WebDAV is properly configured or not present."
+            Write-Host "조치 필요 없음: WebDAV가 적절하게 구성되었거나 존재하지 않습니다."
         }
     } else {
-        Write-Host "No action required: IIS Web Publishing Service is not running."
+        Write-Host "조치 필요 없음: IIS 웹 게시 서비스가 실행 중이지 않습니다."
     }
 }
 
-# Main script execution
+# 주 스크립트 실행
 Initialize-Console
 Setup-AuditEnvironment
 Perform-WebDAVSecurityCheck
 
-# Save JSON results to a file
+# JSON 결과 파일 저장
 $jsonFilePath = "$resultDir\W-35.json"
 $auditParameters | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
