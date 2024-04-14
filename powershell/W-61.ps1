@@ -23,34 +23,34 @@ $resultDirectory = "C:\Window_${computerName}_result"
 Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
 
-# 디렉토리 권한 검사
+# 디렉터리 권한 검사
 $directories = @("$env:systemroot\system32\logfiles", "$env:systemroot\system32\config")
 $vulnerabilityFound = $False
 
 foreach ($dir in $directories) {
     $acl = Get-Acl $dir
     foreach ($ace in $acl.Access) {
-        If ($ace.IdentityReference -eq "Everyone") {
+        If ($ace.IdentityReference -eq "Everyone" -and $ace.FileSystemRights -like "*FullControl*") {
             $vulnerabilityFound = $True
-            $json.현황 += "취약: Everyone 그룹 권한이 발견되었습니다. - $dir"
+            $json.현황 += "취약: Everyone 그룹이 '$dir'에 전체 제어 권한을 가지고 있습니다."
             break
         }
     }
 }
 
 If (-not $vulnerabilityFound) {
-    $json.현황 += "안전: Everyone 그룹 권한이 발견되지 않았습니다."
+    $json.현황 += "안전: 주요 디렉터리에 Everyone 그룹 권한이 적절하게 제한되어 있습니다."
 } else {
     $json.진단 결과 = "취약"
 }
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-61.json"
+$jsonFilePath = "$resultDirectory\W-61.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 결과 요약 및 저장
-Get-Content -Path "$resultDirectory\W-61_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+Get-Content -Path $jsonFilePath | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
 
 Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
 
