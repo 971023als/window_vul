@@ -29,9 +29,9 @@ New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
 # 여기서는 실제 정책 설정을 검사하는 로직이 필요하나, 예시로 간단한 메시지를 저장함
 # 실제 사용 시에는 정책에 따른 검사 로직을 구현해야 함
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-58_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-58.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
 Write-Output "진단 결과가 저장되었습니다: $jsonPath"
 
 # 결과 요약 및 저장

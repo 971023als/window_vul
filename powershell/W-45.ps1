@@ -35,22 +35,24 @@ New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 Write-Host "------------------------------------------W-45 IIS 커스텀 에러 페이지 설정 검사 시작------------------------------------------"
 $webService = Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue
 if ($webService.Status -eq "Running") {
-    $iisConfigChecks = @()
-    $httpPath = Get-Content "$rawDir\http_path.txt"
-    $webConfigContent = Get-Content (Join-Path $httpPath "web.config")
+    # Sample Path for illustration
+    $webConfigPath = "C:\inetpub\wwwroot\web.config"
     
-    $errorStatusCodes = Select-String -Path "$rawDir\http_path.txt" -Pattern "error statusCode"
-    $custErrPath = Select-String -Path "$rawDir\http_path.txt" -Pattern "%SystemDrive%\inetpub\custerr\"
+    if (Test-Path $webConfigPath) {
+        $webConfigContent = Get-Content $webConfigPath
+        $custErrPath = $webConfigContent | Select-String -Pattern "customErrors mode=`"On`""
 
-    if ($errorStatusCodes -and $custErrPath) {
-        $json.진단 결과 = "취약"
-        $json.현황 += "IIS 커스텀 에러 페이지 설정이 적절하지 않아 보안에 취약할 수 있습니다."
-        $iisConfigChecks += $errorStatusCodes, $custErrPath
+        if ($custErrPath) {
+            $json.현황 += "IIS 커스텀 에러 페이지 설정이 적절하게 구성되어 보안이 강화되었습니다."
+        } else {
+            $json."진단 결과" = "취약"
+            $json.현황 += "IIS 커스텀 에러 페이지 설정이 적절하지 않아 보안에 취약할 수 있습니다."
+        }
     } else {
-        $json.현황 += "IIS 커스텀 에러 페이지 설정이 적절하게 구성되어 보안이 강화되었습니다."
+        $json.현황 += "web.config 파일을 찾을 수 없습니다."
     }
 } else {
-    $json.진단 결과 = "정보"
+    $json."진단 결과" = "정보"
     $json.현황 += "World Wide Web Publishing Service가 실행되지 않고 있습니다. IIS 설정이 필요 없을 수 있습니다."
 }
 Write-Host "-------------------------------------------W-45 IIS 커스텀 에러 페이지 설정 검사 종료------------------------------------------"
@@ -58,11 +60,7 @@ Write-Host "-------------------------------------------W-45 IIS 커스텀 에러
 # JSON 결과를 파일에 저장
 $jsonFilePath = "$resultDir\W-45.json"
 $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
-
-# 결과 요약
-Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-45_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
 
 # 정리 작업
 Write-Host "정리 작업을 수행합니다..."
