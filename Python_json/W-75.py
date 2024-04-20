@@ -1,49 +1,59 @@
-# Define the initial JSON structure
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-75"
-    위험도 = "상"
-    진단 항목 = "경고 메시지 설정"
-    진단 결과 = "양호"  # Assuming default value is "Good"
-    현황 = @()
-    대응방안 = "경고 메시지 설정"
-}
+import json
+import os
+import subprocess
+import winreg
 
-# Check for administrator privileges
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -Verb RunAs -ArgumentList "-File `"$PSCommandPath`"", "-ExecutionPolicy Bypass"
-    exit
-}
+def is_admin():
+    """ Check if the script is running as administrator. """
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
 
-# Environment setup
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def setup_environment(computer_name):
+    """ Setup the environment for storing results and configurations. """
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-# Clear existing data and create directories
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def get_legal_notice_settings():
+    """ Retrieve legal notice settings from the registry. """
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon") as key:
+            caption = winreg.QueryValueEx(key, "LegalNoticeCaption")[0]
+            text = winreg.QueryValueEx(key, "LegalNoticeText")[0]
+            return caption, text
+    except FileNotFoundError:
+        return None, None
 
-# Export local security policy
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+def main():
+    if not is_admin():
+        print("스크립트는 관리자 권한으로 실행되어야 합니다.")
+        return
 
-# Verify login legal notice settings
-$LegalNoticeCaption = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon").LegalNoticeCaption
-$LegalNoticeText = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon").LegalNoticeText
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_environment(computer_name)
+    caption, text = get_legal_notice_settings()
+    
+    result = {
+        "분류": "보안관리",
+        "코드": "W-75",
+        "위험도": "상",
+        "진단 항목": "경고 메시지 설정",
+        "진단 결과": "양호" if not caption and not text else "취약",
+        "현황": ["로그인 시 법적 고지가 설정되지 않았습니다."] if not caption and not text else ["로그인 시 법적 고지가 설정되어 있습니다."],
+        "대응방안": "경고 메시지 설정"
+    }
 
-if ($LegalNoticeCaption -ne $null -or $LegalNoticeText -ne $null) {
-    $json.진단 결과 = "취약"
-    $json.현황 += "로그인 시 법적 고지가 설정되어 있습니다."
-} else {
-    $json.현황 += "로그인 시 법적 고지가 설정되지 않았습니다."
-}
+    # Save JSON data to a file
+    json_path = os.path.join(result_dir, f"W-75_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as json_file:
+        json.dump(result, json_file, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# Convert the JSON object to a JSON string and save to a file
-$jsonPath = "$resultDir\W-75_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
-
-# Cleanup
-Remove-Item "$rawDir\*" -Force
-
-Write-Host "스크립트가 완료되었습니다."
+if __name__ == "__main__":
+    main()
