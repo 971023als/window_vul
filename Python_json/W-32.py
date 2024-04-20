@@ -1,56 +1,72 @@
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-32"
-    위험도 = "상"
-    진단 항목 = "해독 가능한 암호화를 사용하여 암호 저장"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "해독 가능한 암호화를 사용하여 암호 저장"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+from win32com.shell import shell
+
+# Initialize diagnostics JSON object
+diagnosis_result = {
+    "분류": "계정관리",
+    "코드": "W-32",
+    "위험도": "상",
+    "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
+    "진단 결과": "양호",  # 기본 값을 '양호'로 가정
+    "현황": [],
+    "대응방안": "해독 가능한 암호화를 사용하여 암호 저장 방지"
 }
 
-# 관리자 권한 확인 및 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    $script = "-File `"" + $MyInvocation.MyCommand.Path + "`""
-    Start-Process PowerShell.exe -ArgumentList $script -Verb RunAs
-    exit
-}
+# Check and request administrator privileges
+if not shell.IsUserAnAdmin():
+    subprocess.call(['runas', '/user:Administrator', 'python'] + sys.argv)
+    exit()
 
-# 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory
+# Environment and directory setup
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
 
-# 로컬 보안 정책 내보내기
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-New-Item -Path "$rawDir\compare.txt" -ItemType File
+# Clear existing directories and create new ones
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
 
-# 시스템 정보 저장
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+# Export local security policy and save system info
+subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
+(raw_dir / 'compare.txt').touch()
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
 
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$bindingInfo = Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation"
-$bindingInfo | Out-File "$rawDir\iis_path1.txt"
+# Analyze IIS settings
+application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+if application_host_config.exists():
+    content = application_host_config.read_text()
+    with open(raw_dir / 'iis_setting.txt', 'w') as file:
+        file.write(content)
+    binding_info = [line for line in content.split('\n') if "physicalPath" in line or "bindingInformation" in line]
+    with open(raw_dir / 'iis_path1.txt', 'w') as file:
+        file.writelines(binding_info)
 
-# W-32 디렉토리 권한 검사
-If ((Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue).Status -eq "Running") {
-    $directories = Get-Content "$rawDir\iis_path1.txt"
-    foreach ($dir in $directories) {
-        if (Test-Path $dir) {
-            $acl = Get-Acl $dir
-            $everyone = $acl.Access | Where-Object { $_.IdentityReference -eq "Everyone" }
-            if ($everyone) {
-                "위험: $dir 디렉토리에 Everyone 그룹에 대한 액세스 권한이 부여됨" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-                $json.현황 += "위험: $dir 디렉토리에 Everyone 그룹에 대한 액세스 권한이 부여됨"
-            }
-        }
-    }
-}
+# W-32 directory permissions check
+service_running = subprocess.run(['sc', 'query', 'W3SVC'], capture_output=True, text=True)
+if "RUNNING" in service_running.stdout:
+    directories = raw_dir / 'iis_path1.txt'
+    if directories.exists():
+        with open(directories) as f:
+            dirs = f.readlines()
+        for dir in dirs:
+            if Path(dir.strip()).exists():
+                acl_output = subprocess.check_output(['icacls', dir.strip()])
+                if 'Everyone' in str(acl_output):
+                    message = f"위험: {dir.strip()} 디렉토리에 Everyone 그룹에 대한 액세스 권한이 부여됨"
+                    with open(result_dir / f'W-Window-{computer_name}-result.txt', 'a') as result_file:
+                        result_file.write(message + '\n')
+                    diagnosis_result["현황"].append(message)
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-32.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+# Save JSON results to a file
+json_file_path = result_dir / 'W-32.json'
+with open(json_file_path, 'w') as file:
+    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+
+print("Script execution completed.")
