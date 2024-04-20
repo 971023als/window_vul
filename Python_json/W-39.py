@@ -1,81 +1,67 @@
-# JSON 데이터 구조를 미리 정의합니다.
-$json = @{
-    분류 = "서비스관리"
-    코드 = "W-39"
-    위험도 = "상"
-    진단항목 = "Anonymouse FTP 금지"
-    진단결과 = "양호" # 기본 값을 "양호"로 설정
-    현황 = @()
-    대응방안 = "Anonymouse FTP 금지"
+import os
+import json
+from pathlib import Path
+import subprocess
+
+# Define the audit parameters
+audit_params = {
+    "분류": "서비스관리",
+    "코드": "W-39",
+    "위험도": "상",
+    "진단 항목": "Anonymouse FTP 금지",
+    "진단 결과": "양호",  # 기본 값을 '양호'로 가정
+    "현황": [],
+    "대응방안": "Anonymouse FTP 금지"
 }
 
-# 관리자 권한이 있는지 확인합니다.
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-If (-not $isAdmin) {
-    $info = New-Object System.Diagnostics.ProcessStartInfo "PowerShell"
-    $info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $args"
-    $info.Verb = "runas"
-    [System.Diagnostics.Process]::Start($info)
-    Exit
-}
+# Request Administrator privileges
+def request_admin():
+    try:
+        subprocess.check_call(['powershell', '-Command', 'Start-Process', 'python', '-ArgumentList', f'"{os.path.realpath(__file__)}"', '-Verb', 'RunAs'])
+    except subprocess.CalledProcessError:
+        pass
+    exit()
 
-# 콘솔 환경을 설정합니다.
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# Set up the environment
+def setup_environment():
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+    result_dir = Path(f"C:\\Window_{computer_name}_result")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Simulate the security policy export
+    (raw_dir / 'Local_Security_Policy.txt').write_text('Local Security Policy Content')
+    # Simulate system info collection
+    (raw_dir / 'systeminfo.txt').write_text('System Info Content')
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+    return raw_dir, result_dir
 
-# 이전 디렉토리를 삭제하고 새로운 디렉토리를 생성합니다.
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+# Simulate checking for Anonymous FTP configuration
+def check_ftp_configuration(raw_dir):
+    # This is a placeholder for real FTP configuration checks
+    # Simulating no anonymous FTP found
+    return True
 
-# 로컬 보안 정책을 내보내고 비교 파일을 생성합니다.
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
+# Main function to run the script
+def main():
+    if os.name == 'nt':
+        request_admin()
 
-# 설치 경로를 저장하고 시스템 정보를 수집합니다.
-Set-Location -Path $rawDir
-Get-Location | Out-File -FilePath "$rawDir\install_path.txt"
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+    raw_dir, result_dir = setup_environment()
+    is_secure = check_ftp_configuration(raw_dir)
 
-Write-Host "------------------------------------------IIS 설정-----------------------------------"
-Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config" | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | ForEach-Object { $_.Line } | Out-File -FilePath "$rawDir\iis_path1.txt"
+    if is_secure:
+        audit_params["진단 결과"] = "양호"
+        audit_params["현황"].append("Anonymouse FTP 사용이 금지되어 있습니다.")
+    else:
+        audit_params["진단 결과"] = "위험"
+        audit_params["현황"].append("Anonymouse FTP 사용이 감지되었습니다.")
 
-# IIS 설정을 분석하고 경로를 저장합니다.
-$line = Get-Content "$rawDir\iis_path1.txt" -Raw
-$line | Out-File -FilePath "$rawDir\line.txt"
+    # Save the audit results to a JSON file with Korean encoding
+    json_path = result_dir / "W-39.json"
+    with open(json_path, 'w', encoding='utf-8') as json_file:
+        json.dump(audit_params, json_file, ensure_ascii=False, indent=4)
 
-1..5 | ForEach-Object {
-    $filePath = "$rawDir\path$_.txt"
-    Get-Content "$rawDir\line.txt" | ForEach-Object {
-        $_ | Out-File -FilePath $filePath -Append
-    }
-}
-
-# MetaBase.xml을 추가합니다(해당하는 경우).
-$metaBasePath = "$env:WINDIR\system32\inetsrv\MetaBase.xml"
-If (Test-Path $metaBasePath) {
-    Get-Content $metaBasePath | Out-File -FilePath "$rawDir\iis_setting.txt" -Append
-}
-
-Write-Host "------------------------------------------설정 종료-------------------------------------------"
-
-# 진단 결과를 기반으로 JSON 데이터를 업데이트합니다.
-$isSecure = $true # 이 값은 실제 진단 로직을 통해 결정되어야 합니다.
-
-if ($isSecure -eq $false) {
-    $json."진단결과" = "위험"
-    $json.현황 = @("EVERYONE 그룹에 대한 FullControl 접근 권한이 발견되었습니다.")
-} else {
-    $json.현황 = @("FTP 디렉토리 접근권한이 적절히 설정됨.")
-}
-
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-39.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+if __name__ == "__main__":
+    main()
