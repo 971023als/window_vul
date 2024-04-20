@@ -1,44 +1,70 @@
-$json = @{
-    "분류" = "보안관리"
-    "코드" = "W-81"
-    "위험도" = "상"
-    "진단 항목" = "시작프로그램 목록 분석"
-    "진단 결과" = "양호"  # 기본 값을 "양호"로 가정
-    "현황" = @()
-    "대응방안" = "시작프로그램 목록 분석"
-}
+import json
+import os
+import subprocess
+from pathlib import Path
+import ctypes
+import winreg
 
-# 관리자 권한 확인 및 스크립트 초기 설정
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
-    exit
-}
+def check_admin_rights():
+    """Check if the script is running with administrative privileges."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
 
-$computerName = $env:COMPUTERNAME
-$resultDir = "C:\Window_${computerName}_result"
+def get_autorun_programs():
+    """Retrieve the list of programs that run on startup."""
+    autorun_locations = [
+        r'Software\Microsoft\Windows\CurrentVersion\Run',
+        r'Software\Microsoft\Windows\CurrentVersion\RunOnce',
+    ]
+    autorun_programs = []
+    for location in autorun_locations:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, location, 0, winreg.KEY_READ) as key:
+            i = 0
+            while True:
+                try:
+                    name, value, type = winreg.EnumValue(key, i)
+                    autorun_programs.append((name, value))
+                    i += 1
+                except OSError:
+                    break
+    return autorun_programs
 
-# 결과 디렉터리 생성
-if (-not (Test-Path $resultDir)) {
-    New-Item -Path $resultDir -ItemType Directory -Force | Out-Null
-}
+def save_results(data, output_path):
+    """Save the results to a JSON file with all text in Korean."""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 로컬 보안 정책 내보내기
-$securityPolicy = secedit /export /cfg "$env:TEMP\secpol.cfg" 2>$null
-$secpolContent = Get-Content "$env:TEMP\secpol.cfg"
-$maximumPasswordAge = $secpolContent | Where-Object { $_ -match "MaximumPasswordAge\s*=\s*(\d+)" }
+def main():
+    if not check_admin_rights():
+        print("관리자 권한으로 실행해야 합니다.")
+        return
 
-if ($matches[1]) {
-    if ($matches[1] -lt 90) {
-        $message = "W-81: 암호 최대 사용 기간이 90일 미만으로 설정됨. 설정값: $($matches[1])"
-    } else {
-        $message = "W-81: 암호 최대 사용 기간이 90일 이상으로 설정되어 있음. 설정값: $($matches[1])"
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    result_dir = Path(f"C:/Window_{computer_name}_result")
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect autorun programs
+    autorun_programs = get_autorun_programs()
+
+    # Define the JSON structure
+    security_data = {
+        "분류": "보안관리",
+        "코드": "W-81",
+        "위험도": "상",
+        "진단 항목": "시작프로그램 목록 분석",
+        "진단 결과": "양호",
+        "현황": [f"{name}: {path}" for name, path in autorun_programs],
+        "대응방안": "시작프로그램 목록 분석"
     }
-    "$message" | Out-File "$resultDir\W-81-${computerName}-result.txt"
-} else {
-    "W-81: 암호 최대 사용 기간 데이터를 찾을 수 없음." | Out-File "$resultDir\W-81-${computerName}-result.txt"
-}
 
-# 스크립트 종료 전 임시 파일 삭제
-Remove-Item "$env:TEMP\secpol.cfg" -Force
+    # Save results to JSON
+    json_path = result_dir / f"W-81_{computer_name}_diagnostic_results.json"
+    save_results(security_data, json_path)
 
-Write-Host "스크립트 실행 완료"
+    print(f"진단 결과가 저장되었습니다: {json_path}")
+    print("스크립트가 완료되었습니다.")
+
+if __name__ == "__main__":
+    main()

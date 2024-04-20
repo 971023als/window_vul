@@ -1,60 +1,80 @@
-$json = @{
-    "분류" = "보안관리"
-    "코드" = "W-80"
-    "위험도" = "상"
-    "진단 항목" = "컴퓨터 계정 암호 최대 사용 기간"
-    "진단 결과" = "양호"  # 기본 값을 "양호"로 가정
-    "현황" = @()
-    "대응방안" = "컴퓨터 계정 암호 최대 사용 기간"
-}
+import json
+import os
+import subprocess
+from pathlib import Path
+import ctypes
 
-# 관리자 권한으로 스크립트 실행 확인
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
-    exit
-}
+def check_admin_rights():
+    """Check if the script is running with administrative privileges."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def setup_directories(base_dir, dirs):
+    """Create and clean directories for storing raw and result data."""
+    for d in dirs:
+        dir_path = base_dir / d
+        if dir_path.exists():
+            for item in dir_path.iterdir():
+                if item.is_dir():
+                    setup_directories(item, [])
+                else:
+                    item.unlink()
+        else:
+            dir_path.mkdir(parents=True, exist_ok=True)
+    return [base_dir / d for d in dirs]
 
-# 디렉터리 생성 및 초기화
-$dirs = @($rawDir, $resultDir)
-foreach ($dir in $dirs) {
-    if (Test-Path $dir) {
-        Remove-Item $dir -Recurse -Force
+def export_security_policy(output_path):
+    """Export local security settings to a file."""
+    subprocess.run(f'secedit /export /cfg "{output_path}"', check=True)
+
+def analyze_security_settings(file_path):
+    """Analyze security settings from exported configuration."""
+    with open(file_path, 'r') as file:
+        policies = file.readlines()
+
+    conditions_met = any("MaximumPasswordAge" in line for line in policies if "90" in line)
+    return conditions_met
+
+def save_results(data, output_path):
+    """Save the results to a JSON file."""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def main():
+    if not check_admin_rights():
+        print("관리자 권한으로 실행해야 합니다.")
+        return
+
+    base_dir = Path(f"C:/Window_{os.getenv('COMPUTERNAME', 'UNKNOWN_PC')}")
+    raw_dir, result_dir = setup_directories(base_dir, ['raw', 'result'])
+
+    # Export and analyze security policies
+    policy_path = raw_dir / "Local_Security_Policy.txt"
+    export_security_policy(policy_path)
+    conditions_met = analyze_security_settings(policy_path)
+
+    # Define JSON structure
+    security_data = {
+        "분류": "보안관리",
+        "코드": "W-80",
+        "위험도": "상",
+        "진단 항목": "컴퓨터 계정 암호 최대 사용 기간",
+        "진단 결과": "양호" if conditions_met else "취약",
+        "현황": [],
+        "대응방안": "컴퓨터 계정 암호 최대 사용 기간"
     }
-    New-Item -Path $dir -ItemType Directory -ErrorAction Continue | Out-Null
-}
+    
+    if not conditions_met:
+        security_data["현황"].append("컴퓨터 계정 암호 최대 사용 기간이 90일 미만입니다.")
 
-# 로컬 보안 정책 및 시스템 정보 내보내기
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+    # Save results to JSON
+    json_path = result_dir / f"W-80_{os.getenv('COMPUTERNAME', 'UNKNOWN_PC')}_diagnostic_results.json"
+    save_results(security_data, json_path)
 
-# IIS 설정 분석
-$iisConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-if (Test-Path $iisConfigPath) {
-    Get-Content $iisConfigPath | Select-String "physicalPath|bindingInformation" | Out-File "$rawDir\iis_setting.txt"
-}
+    print(f"진단 결과가 저장되었습니다: {json_path}")
+    print("스크립트가 완료되었습니다.")
 
-# 보안 정책 분석 예시 (W-80)
-$policyPath = "$rawDir\Local_Security_Policy.txt"
-if (Test-Path $policyPath) {
-    $policyContent = Get-Content $policyPath
-    $maximumPasswordAge = ($policyContent | Select-String "MaximumPasswordAge").ToString().Split('=')[1].Trim()
-    $disablePasswordChange = ($policyContent | Select-String "disablepasswordchange").ToString().Split('=')[1].Trim()
-
-    If ($maximumPasswordAge -lt 90 -and $disablePasswordChange -eq "0") {
-        "W-80,O,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "모든 조건 만족, 보안 정책 이상 없음." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    } Else {
-        "W-80,X,|" | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-        "조건 불만족, 보안 정책 검토 필요." | Out-File "$resultDir\W-Window-$computerName-result.txt" -Append
-    }
-}
-
-# 결과 요약 및 저장
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Remove-Item "$rawDir\*" -Force
+if __name__ == "__main__":
+    main()
