@@ -1,54 +1,71 @@
-# 진단 결과를 위한 JSON 객체 정의
-$json = @{
-    Category = "계정 관리"
-    Code = "W-27"
-    RiskLevel = "높음"
-    DiagnosticItem = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-    DiagnosticResult = "양호"  # 기본 상태를 '양호'로 가정
-    CurrentStatus = @()
-    Recommendation = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+import winreg
+
+# JSON 객체 초기화
+diagnosis_result = {
+    "분류": "계정 관리",
+    "코드": "W-27",
+    "위험도": "높음",
+    "진단항목": "비밀번호 저장을 위한 복호화 가능한 암호화 사용",
+    "진단결과": "양호",  # 기본 상태를 '양호'로 가정
+    "현황": [],
+    "대응방안": "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
 }
 
-# 관리자 권한 요청
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
-    exit
-}
+# 관리자 권한 확인 및 요청
+if not os.getuid() == 0:
+    print("관리자 권한이 필요합니다...")
+    subprocess.call(['sudo', 'python3'] + sys.argv)
+    sys.exit()
 
-# 환경 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue -Force
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$null = New-Item -Path "$rawDir\compare.txt" -ItemType File
-Set-Location -Path $rawDir
-[System.IO.File]::WriteAllText("$rawDir\install_path.txt", (Get-Location).Path)
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+# 초기 설정
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
+
+# 디렉터리 초기화
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
+
+# 보안 설정 및 시스템 정보 수집
+subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
+with open(raw_dir / 'install_path.txt', 'w') as f:
+    f.write(str(raw_dir))
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
 
 # IIS 설정 분석
-$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-if (Test-Path $applicationHostConfigPath) {
-    Get-Content $applicationHostConfigPath | Out-File "$rawDir\iis_setting.txt"
-    Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-} else {
-    Write-Output "IIS configuration file not found."
-}
+application_host_config_path = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+if application_host_config_path.exists():
+    with open(application_host_config_path) as file:
+        content = file.read()
+    with open(raw_dir / 'iis_setting.txt', 'w') as file:
+        file.write(content)
 
 # IISADMIN 서비스 계정 검사
-$serviceStatus = Get-Service W3SVC -ErrorAction SilentlyContinue
-if ($serviceStatus.Status -eq 'Running') {
-    $iisAdminReg = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\IISADMIN" -Name "ObjectName" -ErrorAction SilentlyContinue
-    if ($iisAdminReg -and $iisAdminReg.ObjectName -ne "LocalSystem") {
-        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되지 않고 있습니다. 특별한 조치가 필요하지 않습니다."
-    } elseif ($iisAdminReg) {
-        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되고 있습니다. 권장되지 않습니다."
-    }
-} else {
-    $json.CurrentStatus += "월드 와이드 웹 퍼블리싱 서비스가 실행되지 않고 있습니다. IIS 관련 보안 구성 검토가 필요 없습니다."
-}
+try:
+    service_status = subprocess.check_output(['sc', 'query', 'W3SVC'], text=True)
+    if "RUNNING" in service_status:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services\IISADMIN")
+        object_name, _ = winreg.QueryValueEx(key, "ObjectName")
+        if object_name.lower() != "localsystem":
+            diagnosis_result["현황"].append("IISADMIN 서비스가 LocalSystem 계정에서 실행되지 않고 있습니다. 특별한 조치가 필요하지 않습니다.")
+        else:
+            diagnosis_result["현황"].append("IISADMIN 서비스가 LocalSystem 계정에서 실행되고 있습니다. 권장되지 않습니다.")
+    else:
+        diagnosis_result["현황"].append("월드 와이드 웹 퍼블리싱 서비스가 실행되지 않고 있습니다. IIS 관련 보안 구성 검토가 필요 없습니다.")
+except subprocess.CalledProcessError:
+    diagnosis_result["현황"].append("IIS 서비스 상태 확인 실패.")
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-27.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+json_file_path = result_dir / 'W-27.json'
+with open(json_file_path, 'w') as file:
+    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+
+print("스크립트 실행 완료")
