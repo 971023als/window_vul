@@ -1,63 +1,72 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-48"
-    위험도 = "상"
-    진단 항목 = "SNMP Access control 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "SNMP Access control 설정"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    Exit
-}
+def check_admin():
+    """Check if the script is running as administrator."""
+    try:
+        return subprocess.check_output("net session", stderr=subprocess.STDOUT, shell=True)
+    except subprocess.CalledProcessError:
+        return False
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+def setup_directories(computer_name):
+    """Setup directories for storing raw and result data."""
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def check_snmp_access_control():
+    """Check the SNMP permitted managers in the registry."""
+    try:
+        registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        key_path = r"SYSTEM\CurrentControlSet\Services\SNMP\Parameters\PermittedManagers"
+        key = winreg.OpenKey(registry, key_path, 0, winreg.KEY_READ)
+        managers = {}
+        i = 0
+        while True:
+            try:
+                value_name, value, _ = winreg.EnumValue(key, i)
+                managers[value_name] = value
+                i += 1
+            except OSError:
+                break
+        winreg.CloseKey(key)
+        return managers
+    except Exception as e:
+        print(f"SNMP 접근 제어 설정 검사 중 오류 발생: {str(e)}")
+        return None
 
-# 이전 디렉토리 삭제 및 새 디렉토리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def audit_snmp_access():
+    """Audit SNMP access control settings and save results to a JSON file."""
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    raw_dir, result_dir = setup_directories(computer_name)
 
-# SNMP 허용된 관리자 설정 검사
-Write-Host "------------------------------------------W-48 SNMP 허용된 관리자 설정 검사------------------------------------------"
-$snmpService = Get-Service -Name SNMP -ErrorAction SilentlyContinue
-if ($snmpService.Status -eq "Running") {
-    $permittedManagers = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\PermittedManagers"
-    if ($permittedManagers -and $permittedManagers.PSObject.Properties.Value) {
-        $json.진단 결과 = "양호"
-        $json.현황 += "SNMP 서비스가 실행 중이며 허용된 관리자가 구성되어 있습니다. 해당 설정은 네트워크 보안을 강화하는 데 도움이 됩니다."
-    } else {
-        $json.진단 결과 = "경고"
-        $json.현황 += "SNMP 서비스가 실행 중이지만 허용된 관리자가 명확하게 구성되지 않았습니다. SNMP 관리를 위한 보안 조치로 허용된 관리자를 명확하게 설정하는 것이 권장됩니다."
+    managers = check_snmp_access_control()
+    is_secure = bool(managers)
+
+    results = {
+        "분류": "서비스관리",
+        "코드": "W-48",
+        "위험도": "상",
+        "진단 항목": "SNMP Access control 설정",
+        "진단 결과": "경고" if not is_secure else "양호",
+        "현황": ["SNMP 서비스가 실행 중이며 허용된 관리자가 구성되어 있습니다. 해당 설정은 네트워크 보안을 강화하는 데 도움이 됩니다."] if is_secure else ["SNMP 서비스가 실행 중이지만 허용된 관리자가 명확하게 구성되지 않았습니다."],
+        "대응방안": "SNMP Access control 설정"
     }
-} else {
-    $json.현황 += "SNMP 서비스가 실행되지 않고 있습니다."
-}
-Write-Host "-------------------------------------------진단 종료------------------------------------------"
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-48_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    # Save results to a JSON file
+    json_path = os.path.join(result_dir, f"W-48_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# 결과 요약
-Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-48_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Write-Host "정리 작업을 수행합니다..."
-Remove-Item "$rawDir\*" -Force
-
-Write-Host "스크립트를 종료합니다."
+if __name__ == "__main__":
+    if not check_admin():
+        # Restart the script with admin rights if not running as admin
+        subprocess.call(['powershell', 'Start-Process', 'python', f'"{os.path.abspath(__file__)}"', '-Verb', 'RunAs'])
+    else:
+        audit_snmp_access()

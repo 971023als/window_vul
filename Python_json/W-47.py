@@ -1,62 +1,74 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "서비스관리"
-    코드 = "W-47"
-    위험도 = "상"
-    진단 항목 = "SNMP 서비스 커뮤니티스트링의 복잡성 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "SNMP 서비스 커뮤니티스트링의 복잡성 설정"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    Exit
-}
+def check_admin():
+    """Check if the script is running as administrator."""
+    try:
+        return subprocess.check_output("net session", stderr=subprocess.STDOUT, shell=True)
+    except subprocess.CalledProcessError:
+        return False
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+def setup_directories(computer_name):
+    """Setup directories for storing raw and result data."""
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def check_snmp_community_strings():
+    """Check the SNMP community strings for default insecure settings."""
+    try:
+        registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        key = winreg.OpenKey(registry, r"SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities")
+        result = {}
+        i = 0
+        while True:
+            try:
+                name, value, _ = winreg.EnumValue(key, i)
+                result[name] = value
+                i += 1
+            except OSError:
+                break
+        winreg.CloseKey(key)
+        return result
+    except Exception as e:
+        print(f"SNMP 커뮤니티 스트링 검사 중 오류 발생: {str(e)}")
+        return None
 
-# 이전 디렉토리 삭제 및 새 디렉토리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def audit_snmp_community():
+    """Audit the SNMP service community strings and save results to a JSON file."""
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    raw_dir, result_dir = setup_directories(computer_name)
 
-# SNMP 서비스 커뮤니티 스트링 검사
-Write-Host "------------------------------------------W-47 SNMP 서비스 커뮤니티 스트링 검사------------------------------------------"
-$snmpService = Get-Service -Name SNMP -ErrorAction SilentlyContinue
-if ($snmpService.Status -eq "Running") {
-    $communities = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities"
-    if ($communities -and ($communities.PSObject.Properties.Name -contains "public" -or $communities.PSObject.Properties.Name -contains "private")) {
-        $json.진단 결과 = "경고"
-        $json.현황 += "SNMP 서비스가 실행 중이며 기본 커뮤니티 스트링인 'public' 또는 'private'를 사용하고 있습니다. 이는 네트워크에 보안 취약점을 노출시킬 수 있습니다."
-    } else {
-        $json.현황 += "SNMP 서비스가 실행 중이지만, 'public' 또는 'private'와 같은 기본 커뮤니티 스트링을 사용하고 있지 않습니다."
+    communities = check_snmp_community_strings()
+    insecure_defaults = ['public', 'private']
+
+    # Assessing the security of community strings
+    insecure = any(comm in communities for comm in insecure_defaults)
+
+    results = {
+        "분류": "서비스관리",
+        "코드": "W-47",
+        "위험도": "상",
+        "진단 항목": "SNMP 서비스 커뮤니티스트링의 복잡성 설정",
+        "진단 결과": "경고" if insecure else "양호",
+        "현황": ["SNMP 서비스가 실행 중이며 기본 커뮤니티 스트링인 'public' 또는 'private'를 사용하고 있습니다. 이는 네트워크에 보안 취약점을 노출시킬 수 있습니다."] if insecure else ["SNMP 서비스가 실행 중이지만, 'public' 또는 'private'와 같은 기본 커뮤니티 스트링을 사용하고 있지 않습니다."],
+        "대응방안": "SNMP 서비스 커뮤니티스트링의 복잡성 설정"
     }
-} else {
-    $json.현황 += "SNMP 서비스가 실행되지 않고 있습니다."
-}
-Write-Host "-------------------------------------------진단 종료------------------------------------------"
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-47_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    # Save results to a JSON file
+    json_path = os.path.join(result_dir, f"W-47_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# 결과 요약
-Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-47_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Write-Host "정리 작업을 수행합니다..."
-Remove-Item "$rawDir\*" -Force
-
-Write-Host "스크립트를 종료합니다."
+if __name__ == "__main__":
+    if not check_admin():
+        # Restart the script with admin rights if not running as admin
+        subprocess.call(['powershell', 'Start-Process', 'python', f'"{os.path.abspath(__file__)}"', '-Verb', 'RunAs'])
+    else:
+        audit_snmp_community()
