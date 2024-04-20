@@ -1,64 +1,65 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "서비스관리"
-    코드 = "W-49"
-    위험도 = "상"
-    진단 항목 = "DNS 서비스 구동 점검"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "DNS 서비스 구동 점검"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    exit
-}
+def check_admin():
+    """Check if the script is running as administrator."""
+    try:
+        return subprocess.check_output("net session", stderr=subprocess.STDOUT, shell=True)
+    except subprocess.CalledProcessError:
+        return False
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "White"
-Clear-Host
+def setup_directories(computer_name):
+    """Setup directories for storing raw and result data."""
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-Write-Host "------------------------------------------Setting---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def check_dns_service():
+    """Check DNS service settings from the registry."""
+    try:
+        registry = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\DNS Server\Zones"
+        key = winreg.OpenKey(registry, key_path, 0, winreg.KEY_READ)
+        allow_update = winreg.QueryValueEx(key, "AllowUpdate")[0]
+        winreg.CloseKey(key)
+        return allow_update == 0  # Return True if dynamic updates are disabled
+    except Exception as e:
+        print(f"DNS 서비스 동적 업데이트 설정 검사 중 오류 발생: {str(e)}")
+        return None
 
-# 이전 디렉토리 삭제 및 새 디렉토리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def audit_dns_service():
+    """Audit DNS service settings and save results in a JSON file."""
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    raw_dir, result_dir = setup_directories(computer_name)
 
-# DNS 서비스 동적 업데이트 설정 검사
-Write-Host "------------------------------------------W-49 DNS Service Dynamic Update Check------------------------------------------"
-$dnsService = Get-Service -Name "DNS" -ErrorAction SilentlyContinue
-if ($dnsService.Status -eq "Running") {
-    $allowUpdate = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\DNS Server\Zones" -ErrorAction SilentlyContinue).AllowUpdate
-    if ($allowUpdate -eq "0") {
-        $json.진단 결과 = "양호"
-        $json.현황 += "DNS 서비스가 활성화되어 있으나 동적 업데이트 권한이 설정되어 있지 않은 경우, 이는 안전합니다."
-    } else {
-        $json.진단 결과 = "경고"
-        $json.현황 += "DNS 서비스가 활성화되어 있으나 동적 업데이트 권한이 설정되어 있는 경우, 이는 위험합니다."
+    is_safe = check_dns_service()
+    diagnosis = "양호" if is_safe else "경고"
+    status = "DNS 서비스가 활성화되어 있으나 동적 업데이트 권한이 설정되어 있지 않은 경우, 이는 안전합니다." if is_safe else "DNS 서비스가 활성화되어 있으나 동적 업데이트 권한이 설정되어 있는 경우, 이는 위험합니다."
+
+    results = {
+        "분류": "서비스관리",
+        "코드": "W-49",
+        "위험도": "상",
+        "진단 항목": "DNS 서비스 구동 점검",
+        "진단 결과": diagnosis,
+        "현황": [status],
+        "대응방안": "DNS 서비스 구동 점검"
     }
-} else {
-    $json.현황 += "DNS 서비스가 비활성화되어 있으며, 이는 안전합니다."
-}
-Write-Host "-------------------------------------------End------------------------------------------"
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-49_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    # Save results to a JSON file
+    json_path = os.path.join(result_dir, f"W-49_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# 결과 요약
-Write-Host "Results have been saved to: C:\Window_$computerName\_result\security_audit_summary.txt"
-Get-Content "$resultDir\W-49_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Write-Host "Cleaning up..."
-Remove-Item "$rawDir\*" -Force
-
-Write-Host "Script has ended."
+if __name__ == "__main__":
+    if not check_admin():
+        # Restart the script with admin rights if not running as admin
+        subprocess.call(['powershell', 'Start-Process', 'python', f'"{os.path.abspath(__file__)}"', '-Verb', 'RunAs'])
+    else:
+        audit_dns_service()
