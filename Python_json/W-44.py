@@ -1,61 +1,65 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "서비스관리"
-    코드 = "W-44"
-    위험도 = "상"
-    진단 항목 = "터미널 서비스 암호화 수준 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "터미널 서비스 암호화 수준 설정"
-}
+import os
+import json
+import subprocess
+import winreg
+from win32com.shell import shell
 
-# 관리자 권한 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    exit
-}
+def check_admin():
+    return shell.IsUserAnAdmin()
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+def setup_directories(computer_name):
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def get_min_encryption_level():
+    reg_key_path = r"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
+    try:
+        registry_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_key_path, 0, winreg.KEY_READ)
+        min_encryption_level, _ = winreg.QueryValueEx(registry_key, "MinEncryptionLevel")
+        winreg.CloseKey(registry_key)
+        return min_encryption_level
+    except WindowsError:
+        return None
 
-# 이전 디렉토리 삭제 및 새 디렉토리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def audit_rdp_encryption():
+    min_encryption_level = get_min_encryption_level()
+    result = {
+        "분류": "서비스관리",
+        "코드": "W-44",
+        "위험도": "상",
+        "진단 항목": "터미널 서비스 암호화 수준 설정",
+        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
+        "현황": [],
+        "대응방안": "터미널 서비스 암호화 수준 설정"
+    }
 
-# RDP 최소 암호화 수준 검사 시작
-Write-Host "------------------------------------------W-44 RDP 최소 암호화 수준 검사 시작------------------------------------------"
-$regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
-$minEncryptionLevel = (Get-ItemProperty -Path $regPath -Name "MinEncryptionLevel").MinEncryptionLevel
+    if min_encryption_level is not None:
+        if min_encryption_level > 1:
+            result["현황"].append("RDP 최소 암호화 수준이 적절히 설정되어 있습니다.")
+        else:
+            result["진단 결과"] = "취약"
+            result["현황"].append("RDP 최소 암호화 수준이 낮게 설정되어 있어 보안에 취약할 수 있습니다.")
+    else:
+        result["진단 결과"] = "오류"
+        result["현황"].append("RDP 최소 암호화 수준을 조회하는 데 실패했습니다.")
 
-if ($minEncryptionLevel -gt 1) {
-    $json."진단 결과" = "양호"
-    $json.현황 += "RDP 최소 암호화 수준이 적절히 설정되어 있습니다."
-} else {
-    $json."진단 결과" = "취약"
-    $json.현황 += "RDP 최소 암호화 수준이 낮게 설정되어 있어 보안에 취약할 수 있습니다."
-}
-Write-Host "-------------------------------------------W-44 RDP 최소 암호화 수준 검사 종료------------------------------------------"
+    return result
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-44_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+def save_results(results, result_dir):
+    file_path = os.path.join(result_dir, "W-44_diagnostics_results.json")
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=4)
+    print(f"결과가 저장되었습니다: {file_path}")
 
-# 결과 요약
-Write-Host "결과 요약이 $resultDir\security_audit_summary.txt에 저장되었습니다."
-Get-Content "$resultDir\W-44_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Write-Host "정리 작업을 수행합니다..."
-Remove-Item "$rawDir\*" -Force
-
-Write-Host "스크립트를 종료합니다."
+if __name__ == "__main__":
+    if not check_admin():
+        # Restart script with admin rights if not already admin
+        subprocess.call(['powershell', 'Start-Process', 'python', f'"{os.path.abspath(__file__)}"', '-Verb', 'RunAs'])
+    else:
+        computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+        raw_dir, result_dir = setup_directories(computer_name)
+        audit_results = audit_rdp_encryption()
+        save_results(audit_results, result_dir)
