@@ -1,5 +1,51 @@
-# JSON 형태로 데이터 저장
-security_data = {
+
+import json
+import os
+import subprocess
+from winreg import *
+
+def is_admin():
+    """Check if the script is running with administrative privileges."""
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+def setup_directories(computer_name):
+    """Create directories for storing raw and result data."""
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
+
+def export_local_security_policy(raw_dir):
+    """Export the local security policy settings to a file."""
+    output_file = os.path.join(raw_dir, "Local_Security_Policy.txt")
+    subprocess.run(['secedit', '/export', '/cfg', output_file], check=True)
+
+def get_lan_manager_auth_level():
+    """Retrieve the LAN Manager authentication level from the registry."""
+    try:
+        with OpenKey(HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Lsa", 0, KEY_READ) as key:
+            value, _ = QueryValueEx(key, "LmCompatibilityLevel")
+            return value
+    except FileNotFoundError:
+        return None
+
+def main():
+    if not is_admin():
+        print("관리자 권한으로 실행해야 합니다.")
+        return
+
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_directories(computer_name)
+    export_local_security_policy(raw_dir)
+
+    lm_auth_level = get_lan_manager_auth_level()
+    status = "취약" if lm_auth_level is None or lm_auth_level < 3 else "양호"
+    results = {
     "분류": "보안관리",
     "코드": "W-77",
     "위험도": "상",
@@ -8,52 +54,17 @@ security_data = {
     "현황": [],
     "대응방안": "LAN Manager 인증 수준 변경"
 }
-# 관리자 권한으로 실행되지 않았다면 스크립트를 관리자 권한으로 다시 실행
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
-{
-    Start-Process powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSCommandPath" -Verb RunAs
-    exit
-}
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+    if lm_auth_level is not None:
+        results["현황"].append(f"현재 설정된 LAN Manager 인증 수준: {lm_auth_level}")
+    else:
+        results["현황"].append("LAN Manager 인증 수준이 설정되지 않았습니다.")
 
-# 기존 폴더 삭제 및 새 폴더 생성
-if (Test-Path $rawDir) { Remove-Item -Path $rawDir -Recurse -Force }
-if (Test-Path $resultDir) { Remove-Item -Path $resultDir -Recurse -Force }
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+    json_path = os.path.join(result_dir, f"W-75_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=4)
 
-# 로컬 보안 정책 내보내기
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# 시스템 정보 수집
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS 설정 파일 읽기
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-
-# 임시 파일 및 폴더 삭제
-Remove-Item -Path $rawDir -Recurse -Force
-
-# 진단 결과에 따라 JSON 데이터 업데이트
-$json = $security_data | ConvertFrom-Json
-if ($vulnerableUsers.Count -gt 0) {
-    $json.diagnostic_result = "Vulnerable"
-    $json.status = $vulnerableUsers | ForEach-Object { "Full permission set for Everyone group: $_" }
-} else {
-    $json.diagnostic_result = "Good"
-}
-
-# 업데이트된 JSON 데이터 저장
-$jsonPath = "$resultDir\security_data.json"
-$json | ConvertTo-Json | Set-Content $jsonPath
-
-# 결과 요약
-Get-Content "$resultDir\W-Window-*" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Remove-Item "$rawDir" -Recurse -Force
-
-Write-Host "스크립트가 완료되었습니다."
+if __name__ == "__main__":
+    main()
