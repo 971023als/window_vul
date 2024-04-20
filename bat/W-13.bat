@@ -1,55 +1,44 @@
-# JSON 객체 초기화
-$json = @{
-    "분류" = "계정관리"
-    "코드" = "W-13"
-    "위험도" = "상"
-    "진단 항목" = "마지막 사용자 이름 표시 안함"
-    "진단 결과" = "양호"  # 기본 값을 "양호"로 가정
-    "현황" = @()
-    "대응방안" = "마지막 사용자 이름 표시 안함"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 확인 및 요청
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
+:: 관리자 권한으로 실행 확인
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
     exit
-}
+)
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$Host.UI.RawUI.ForegroundColor = "Green"
+:: 기본 설정
+set "computerName=%COMPUTERNAME%"
+set "rawPath=C:\Window_%computerName%_raw"
+set "resultPath=C:\Window_%computerName%_result"
 
-# 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+:: 디렉토리 초기화 및 생성
+if exist "%rawPath%" rmdir /s /q "%rawPath%"
+if exist "%resultPath%" rmdir /s /q "%resultPath%"
+mkdir "%rawPath%"
+mkdir "%resultPath%"
 
-# 보안 설정 및 시스템 정보 수집
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$installPath = (Get-Location).Path
-$installPath | Out-File -FilePath "$rawDir\install_path.txt"
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+:: 보안 정책 파일 내보내기
+secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
 
-# IIS 설정 분석
-$applicationHostConfig = Get-Content -Path "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File -FilePath "$rawDir\iis_path1.txt"
+:: 마지막 사용자 이름 표시 정책 설정 검사
+set "진단결과=양호"
+set "현황="
 
-# 보안 정책 분석 - DontDisplayLastUserName
-$securityPolicy = Get-Content -Path "$rawDir\Local_Security_Policy.txt"
-$policyAnalysis = $securityPolicy | Where-Object { $_ -match "DontDisplayLastUserName\s*=\s*1" }
+for /f "tokens=2 delims== eol= " %%a in ('findstr /R "DontDisplayLastUserName = [0-9]*" "%rawPath%\Local_Security_Policy.txt"') do (
+    set "dontDisplayLastUserName=%%a"
+    if "!dontDisplayLastUserName!"=="1" (
+        set "현황=준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 활성화되어 있습니다."
+    ) else (
+        set "진단결과=취약"
+        set "현황=미준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 비활성화되어 있습니다."
+    )
+)
 
-# Update the JSON object based on the "DontDisplayLastUserName" policy analysis
-if ($policyAnalysis) {
-    $json.진단결과 = "양호"
-    $json.현황 += "준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 활성화되어 있습니다."
-} else {
-    $json.진단결과 = "취약"
-    $json.현황 += "미준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 비활성화되어 있습니다."
-}
+:: 진단 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-13.csv"
+echo 계정관리,W-13,상,마지막 사용자 이름 표시 안함,!진단결과!,!현황!,마지막 사용자 이름 표시 안함 >> "%resultPath%\W-13.csv"
 
-# Save the JSON results to a file named "1.json"
-$jsonFilePath = "$resultDir\W-13.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+:: 스크립트 실행 완료 메시지
+echo 스크립트 실행 완료
