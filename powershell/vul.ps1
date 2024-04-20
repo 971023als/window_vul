@@ -1,31 +1,76 @@
-# 필요한 모듈 설치
-Install-Module -Name ImportExcel -Scope CurrentUser -Force
+# 초기 설정
+$webDirectory = "C:\www\html"
+$now = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
+$resultsPath = Join-Path $webDirectory "results_$now.json"
+$errorsPath = Join-Path $webDirectory "errors_$now.log"
+$csvPath = Join-Path $webDirectory "results_$now.csv"
+$htmlPath = Join-Path $webDirectory "index.html"
 
-# 컴퓨터 이름 변수 설정
-$computerName = $env:COMPUTERNAME
+function Execute-SecurityChecks {
+    Write-Host "보안 점검 스크립트 실행"
+    $errors = @()
+    $results = @()
+    # 예시: Python 스크립트 실행
+    1..72 | ForEach-Object {
+        $scriptPath = "W-$("{0:D2}" -f $_).py"
+        if (Test-Path $scriptPath) {
+            try {
+                $result = python $scriptPath
+                $results += $result
+            } catch {
+                $errors += $_.Exception.Message
+            }
+        } else {
+            $errors += "$scriptPath not found"
+        }
+    }
+    $results | ConvertTo-Json | Set-Content $resultsPath
+    $errors | Set-Content $errorsPath
+}
 
-# 결과 파일이 저장될 디렉토리 설정
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+function Convert-Results {
+    Write-Host "결과 변환"
+    $data = Get-Content $resultsPath | ConvertFrom-Json
+    if ($data) {
+        # CSV 변환
+        $data | Export-Csv $csvPath -NoTypeInformation -Encoding UTF8
 
-# 최종 Excel 파일 경로
-$excelFilePath = "C:\Window_${computerName}_result\Summary.xlsx"
-
-# Excel 파일 생성 준비
-$excelPackage = New-ExcelPackage
-
-# JSON 파일을 읽고 Excel로 변환
-1..72 | ForEach-Object {
-    $jsonFile = Join-Path -Path $resultDir -ChildPath ("W-$("{0:D2}" -f $_).json")
-    if (Test-Path $jsonFile) {
-        $jsonData = Get-Content -Path $jsonFile | ConvertFrom-Json
-        $sheetName = "W-$("{0:D2}" -f $_)"
-        $jsonData | Export-Excel -ExcelPackage $excelPackage -WorksheetName $sheetName -AutoSize
-    } else {
-        Write-Host "파일이 존재하지 않습니다: $jsonFile"
+        # HTML 변환
+        $htmlContent = @"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Security Check Results</title>
+    <style>
+        table {
+            width: 100%; border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid black; padding: 8px;
+        }
+        th {
+            background-color: #4CAF50; color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Security Check Results</h1>
+    <table>
+        <tr><th>$(($data[0].PSObject.Properties.Name -join "</th><th>"))</th></tr>
+$(foreach ($item in $data) {
+    "<tr><td>$($item.PSObject.Properties.Value -join "</td><td>")</td></tr>"
+})
+    </table>
+</body>
+</html>
+"@
+        $htmlContent | Set-Content $htmlPath
     }
 }
 
-# Excel 파일 저장
-$excelPackage.SaveAs($excelFilePath)
-Write-Host "Excel 파일이 생성되었습니다: $excelFilePath"
+function Main {
+    Execute-SecurityChecks
+    Convert-Results
+}
+
+Main
