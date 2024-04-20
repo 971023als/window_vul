@@ -1,54 +1,70 @@
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-08"
-    위험도 = "상"
-    진단항목 = "계정 잠금 기간 설정"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "계정 잠금 기간 설정"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+
+# JSON 객체 초기화
+diagnosis_result = {
+    "분류": "계정관리",
+    "코드": "W-08",
+    "위험도": "상",
+    "진단항목": "계정 잠금 기간 설정",
+    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "현황": [],
+    "대응방안": "계정 잠금 기간 설정"
 }
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "관리자 권한이 필요합니다..."
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-    Exit
-}
+# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
+if not os.getuid() == 0:
+    print("관리자 권한이 필요합니다...")
+    subprocess.call(['sudo', 'python3'] + sys.argv)
+    sys.exit()
 
 # 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
+
+# 기존 폴더 및 파일 제거 및 새 폴더 생성
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
 
 # 보안 정책 파일 생성
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
 
-# 시스템 정보 수집 및 IIS 구성
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Get-Content "$env:WINDOWS\system32\inetsrv\MetaBase.xml" | Out-File "$rawDir\iis_setting.txt" -Append
+# 시스템 정보 및 IIS 구성 수집
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
+
+application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+metabase_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'MetaBase.xml'
+shutil.copy(application_host_config, raw_dir / 'iis_setting.txt')
+shutil.copy(metabase_config, raw_dir / 'iis_setting.txt', append=True)
 
 # 보안 정책 분석
-$securityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
-$lockoutDuration = ($securityPolicy | Where-Object { $_ -match "LockoutDuration" }).Split("=")[1].Trim()
-$resetLockoutCount = ($securityPolicy | Where-Object { $_ -match "ResetLockoutCount" }).Split("=")[1].Trim()
+security_policy_file = raw_dir / "Local_Security_Policy.txt"
+with open(security_policy_file, 'r') as file:
+    security_policy = file.readlines()
+    lockout_duration = [line.split("=")[1].strip() for line in security_policy if "LockoutDuration" in line][0]
+    reset_lockout_count = [line.split("=")[1].strip() for line in security_policy if "ResetLockoutCount" in line][0]
 
-# 정책 검사 및 JSON 객체 업데이트
-if ($resetLockoutCount -gt 59) {
-    if ($lockoutDuration -gt 59) {
-        $json.현황 += "정책 충족: '잠금 지속 시간'과 '잠금 카운트 리셋 시간'이 설정 요구사항을 충족합니다."
-    } else {
-        $json.진단결과 = "취약"
-        $json.현황 += "정책 미충족: '잠금 지속 시간' 또는 '잠금 카운트 리셋 시간'이 설정 요구사항을 미충족합니다."
-    }
-} else {
-    $json.진단결과 = "취약"
-    $json.현황 += "정책 미충족: '잠금 지속 시간' 또는 '잠금 카운트 리셋 시간'이 설정 요구사항을 미충족합니다."
-}
+    # 정책 검사 및 JSON 객체 업데이트
+    if int(reset_lockout_count) > 59:
+        if int(lockout_duration) > 59:
+            diagnosis_result["현황"].append("정책 충족: '잠금 지속 시간'과 '잠금 카운트 리셋 시간'이 설정 요구사항을 충족합니다.")
+        else:
+            diagnosis_result["진단결과"] = "취약"
+            diagnosis_result["현황"].append("정책 미충족: '잠금 지속 시간' 또는 '잠금 카운트 리셋 시간'이 설정 요구사항을 미충족합니다.")
+    else:
+        diagnosis_result["진단결과"] = "취약"
+        diagnosis_result["현황"].append("정책 미충족: '잠금 지속 시간' 또는 '잠금 카운트 리셋 시간'이 설정 요구사항을 미충족합니다.")
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-08.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+json_file_path = result_dir / 'W-08.json'
+with open(json_file_path, 'w') as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("스크립트 실행 완료")
