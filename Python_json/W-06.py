@@ -1,57 +1,61 @@
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-06"
-    위험도 = "상"
-    진단항목 = "관리자 그룹에 최소한의 사용자 포함"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "관리자 그룹에 최소한의 사용자 포함"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+
+# JSON 객체 초기화
+diagnosis_result = {
+    "분류": "계정관리",
+    "코드": "W-06",
+    "위험도": "상",
+    "진단항목": "관리자 그룹에 최소한의 사용자 포함",
+    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "현황": [],
+    "대응방안": "관리자 그룹에 최소한의 사용자 포함"
 }
 
-# Check for Administrator privileges
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "관리자 권한을 요청하는 중..."
-    $currentScript = $MyInvocation.MyCommand.Definition
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$currentScript`"" -Verb RunAs
-    Exit
-}
+# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
+if not os.getuid() == 0:
+    print("관리자 권한을 요청하는 중...")
+    subprocess.call(['sudo', 'python3'] + sys.argv)
+    sys.exit()
 
-# Set console preferences
-[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# 초기 환경 설정
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
 
-# Initial setup
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
+# 기존 폴더 및 파일 제거 및 새 폴더 생성
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
 
-# Get installation path
-"$installPath" | Out-File "$rawDir\install_path.txt"
+# 시스템 정보 수집
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
 
-# Collect system information
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+# IIS 구성 수집
+application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+metabase_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'MetaBase.xml'
+shutil.copy(application_host_config, raw_dir / 'iis_setting.txt')
+shutil.copy(metabase_config, raw_dir / 'iis_setting.txt', append=True)
 
-# IIS Configuration
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Get-Content "$env:WINDOWS\system32\inetsrv\MetaBase.xml" | Out-File "$rawDir\iis_setting.txt" -Append
-
-# Check for "test" or "Guest" in Administrators group
-$administrators = net localgroup Administrators
-$nonCompliantAccounts = $administrators | Where-Object { $_ -match "test|Guest" }
+# 관리자 그룹 멤버십 검사
+administrators_output = subprocess.check_output('net localgroup Administrators', shell=True).decode()
+non_compliant_accounts = [line for line in administrators_output.split('\n') if "test" in line or "Guest" in line]
 
 # 관리자 그룹 멤버십 검사 후 JSON 객체 업데이트
-if ($nonCompliantAccounts) {
-    $json.진단결과 = "취약"
-    $json.현황 += "관리자 그룹에 임시 또는 게스트 계정('test', 'Guest')이 포함되어 있습니다."
-} else {
-    $json.현황 += "관리자 그룹에 임시 또는 게스트 계정이 포함되지 않아 보안 정책을 준수합니다."
-}
+if non_compliant_accounts:
+    diagnosis_result["진단결과"] = "취약"
+    diagnosis_result["현황"].append("관리자 그룹에 임시 또는 게스트 계정('test', 'Guest')이 포함되어 있습니다.")
+else:
+    diagnosis_result["현황"].append("관리자 그룹에 임시 또는 게스트 계정이 포함되지 않아 보안 정책을 준수합니다.")
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-06.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+json_file_path = result_dir / 'W-06.json'
+with open(json_file_path, 'w') as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("스크립트 실행 완료")
