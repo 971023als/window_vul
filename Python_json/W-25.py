@@ -1,52 +1,75 @@
-# Initialize diagnostics JSON object
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-25"
-    위험도 = "상"
-    진단 항목 = "Use of decryptable encryption to store passwords"
-    진단 결과 = "양호" # Assuming 'Good' as the default
-    현황 = @()
-    대응방안 = "Use decryptable encryption to store passwords"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+
+# JSON 객체 초기화
+diagnosis_result = {
+    "분류": "계정관리",
+    "코드": "W-25",
+    "위험도": "상",
+    "진단항목": "Use of decryptable encryption to store passwords",
+    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "현황": [],
+    "대응방안": "Use decryptable encryption to store passwords"
 }
 
-# Request Administrator privileges
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    Exit
-}
+# 관리자 권한 확인 및 요청
+if not os.getuid() == 0:
+    print("관리자 권한이 필요합니다...")
+    subprocess.call(['sudo', 'python3'] + sys.argv)
+    sys.exit()
 
-# Environment and initial setup
-chcp 437 | Out-Null
-$host.UI.RawUI.ForegroundColor = "Green"
-$computerName = $env:COMPUTERNAME
-$directories = @("C:\Window_$($computerName)_raw", "C:\Window_$($computerName)_result")
+# 초기 설정
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
 
-# Directory setup
-foreach ($dir in $directories) {
-    If (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force }
-    New-Item -Path $dir -ItemType Directory | Out-Null
-}
+# 디렉터리 초기화
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
 
-# System information and security policy export
-secedit /export /cfg "$($directories[0])\Local_Security_Policy.txt"
-(Get-Location).Path | Out-File "$($directories[0])\install_path.txt"
-systeminfo | Out-File "$($directories[0])\systeminfo.txt"
+# 보안 설정 및 시스템 정보 수집
+subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
+with open(raw_dir / 'install_path.txt', 'w') as f:
+    f.write(str(raw_dir))
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
 
-# Analyze IIS configuration for "Enable Parent Paths" setting
-$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig = Get-Content $applicationHostConfigPath
-$applicationHostConfig | Out-File "$($directories[0])\iis_setting.txt"
-$enableParentPaths = $applicationHostConfig | Select-String -Pattern "asp enableParentPaths"
+# IIS 구성 분석
+application_host_config_path = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+with open(application_host_config_path) as file:
+    content = file.read()
+with open(raw_dir / 'iis_setting.txt', 'w') as file:
+    file.write(content)
+
+# Check for the presence of the "asp enableParentPaths" setting
+enable_parent_paths = "enableParentPaths=\"true\"" in content
+
+# Check if the IIS service is running
+try:
+    service_status = subprocess.check_output(['sc', 'query', 'W3SVC'], text=True)
+    is_running = "RUNNING" in service_status
+except subprocess.CalledProcessError:
+    is_running = False
 
 # Diagnostic result based on the setting
-If (Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } -and $enableParentPaths) {
-    $json.진단 결과 = "취약"
-    $json.현황 += "부모 경로 사용 설정이 활성화되어 있어 보안 위반."
-} Else {
-    $json.진단 결과 = "양호"
-    $json.현황 += If ($enableParentPaths) { "부모 경로 사용 설정이 활성화되어 있으나, IIS 서비스 비활성화 상태." } Else { "부모 경로 사용 설정이 비활성화되어 있어 보안 준수." }
-}
+if is_running and enable_parent_paths:
+    diagnosis_result["진단결과"] = "취약"
+    diagnosis_result["현황"].append("부모 경로 사용 설정이 활성화되어 있어 보안 위반.")
+elif enable_parent_paths:
+    diagnosis_result["진단결과"] = "취약"
+    diagnosis_result["현황"].append("부모 경로 사용 설정이 활성화되어 있으나, IIS 서비스 비활성화 상태.")
+else:
+    diagnosis_result["진단결과"] = "양호"
+    diagnosis_result["현황"].append("부모 경로 사용 설정이 비활성화되어 있어 보안 준수.")
 
 # Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-25.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+json_file_path = result_dir / 'W-25.json'
+with open(json_file_path, 'w') as file:
+    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+
+print("스크립트 실행 완료")
