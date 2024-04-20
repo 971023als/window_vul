@@ -1,59 +1,61 @@
-# JSON 데이터 초기화
-$json = [PSCustomObject]@{
-    분류 = "서비스관리"
-    코드 = "W-40"
-    위험도 = "상"
-    진단 항목 = "FTP 접근 제어 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "FTP 접근 제어 설정"
+import os
+import json
+from pathlib import Path
+import subprocess
+
+# Define the initial JSON data structure
+audit_info = {
+    "분류": "서비스관리",
+    "코드": "W-40",
+    "위험도": "상",
+    "진단 항목": "FTP 접근 제어 설정",
+    "진단 결과": "양호",  # Assume 'Good' as the default state
+    "현황": [],
+    "대응방안": "FTP 접근 제어 설정"
 }
 
-# 관리자 권한 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-If (-not $isAdmin) {
-    Write-Host "이 스크립트는 관리자 권한으로 실행되어야 합니다. 관리자 권한으로 재실행하겠습니다..."
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    Exit
-}
+# Request Administrator privileges if not already running with them
+def request_admin():
+    try:
+        subprocess.check_call(['powershell', 'Start-Process', 'python', f'"{os.path.abspath(__file__)}"', '-Verb', 'RunAs'])
+    except subprocess.CalledProcessError:
+        pass
+    exit()
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# Setup environment and directories
+def setup_environment():
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+    result_dir = Path(f"C:\\Window_{computer_name}_result")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    return raw_dir, result_dir
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+# Simulate FTP access control diagnostics
+def check_ftp_access_control():
+    # This is a placeholder for the actual diagnostic logic
+    # In reality, you would implement checks against FTP server settings here
+    is_ftp_secure = False  # Simulate an insecure condition
+    return is_ftp_secure
 
-# 결과 저장 경로 안내
-$jsonFilePath = "C:\path_to_your_output\FTP_diagnostics_results.json"
-Write-Host "결과는 다음 위치에 저장될 예정입니다: $jsonFilePath"
+# Main function
+def main():
+    if os.name == 'nt':
+        request_admin()
 
-Try {
-    # 이전 디렉토리 삭제 및 새 디렉토리 생성
-    Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+    raw_dir, result_dir = setup_environment()
+    is_ftp_secure = check_ftp_access_control()
 
-    # 진단 로직 (간략화된 형태로 표현)
-    # 실제 진단 로직을 구현하세요. 이 예제에서는 단순화를 위해 직접 값을 설정합니다.
-    $isFtpSecure = $false
+    if not is_ftp_secure:
+        audit_info["진단 결과"] = "위험"
+        audit_info["현황"].append("특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다.")
+    else:
+        audit_info["현황"].append("특정 IP 주소에서만 FTP 접속이 허용되어 있습니다.")
 
-    if ($isFtpSecure -eq $false) {
-        $json."진단 결과" = "위험"
-        $json.현황 = @("특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다.")
-    } else {
-        $json.현황 = @("특정 IP 주소에서만 FTP 접속이 허용되어 있습니다.")
-    }
+    # Save the audit results to a JSON file with Korean characters preserved
+    json_path = result_dir / "W-40.json"
+    with open(json_path, 'w', encoding='utf-8') as json_file:
+        json.dump(audit_info, json_file, ensure_ascii=False, indent=4)
 
-    # JSON 결과를 파일에 저장
-    $jsonFilePath = "$resultDir\W-40.json"
-    $json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-
-} Catch {
-    Write-Host "오류 발생: $_"
-}
-
-Write-Host "------------------------------------------설정 종료-------------------------------------------"
+if __name__ == "__main__":
+    main()
