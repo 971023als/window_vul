@@ -1,78 +1,49 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject("Shell.Application") > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-    del "getadmin.vbs"
-    exit /B
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-09"
+    위험도 = "상"
+    진단항목 = "패스워드 복잡성 설정"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "패스워드 복잡성 설정"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정 시작---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS 설정-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------설정 종료-------------------------------------------
-echo ------------------------------------------W-09 비밀번호 복잡성 검사 시작------------------------------------------
-type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Find /I "PasswordComplexity" | findstr "1" > nul
-IF NOT ERRORLEVEL 1 (
-    REM 정책 충족
-    echo W-09,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 정책 충족 결과 저장 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo "비밀번호 복잡성 요구 사항이 '활성화'로 설정되어 있습니다." >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 설정 값 확인 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Find /I "PasswordComplexity" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 분석 완료 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE ( 
-    REM 정책 미충족
-    echo W-09,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 정책 미충족 결과 저장 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo "비밀번호 복잡성 요구 사항이 '비활성화'로 설정되어 있습니다." >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 설정 값 확인 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Find /I "PasswordComplexity" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 분석 완료 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------비밀번호 복잡성 검사 종료-------------------------------------------
+# 관리자 권한 확인
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "관리자 권한이 필요합니다..."
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    Exit
+}
 
-echo --------------------------------------W-09 원본 데이터 저장 -------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Find /I "PasswordComplexity">> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo -------------------------------------------------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
+# 콘솔 환경 설정
+[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
+$host.UI.RawUI.BackgroundColor = "DarkGreen"
+$host.UI.RawUI.ForegroundColor = "Green"
+Clear-Host
+
+# 초기 설정
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+
+# 보안 정책 파일 생성 및 시스템 정보 수집
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+systeminfo | Out-File "$rawDir\systeminfo.txt"
+
+# 패스워드 복잡성 설정 검사
+$securityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
+$passwordComplexity = $securityPolicy | Where-Object { $_ -match "PasswordComplexity" }
+
+# 패스워드 복잡성 정책 검사 후 JSON 객체 업데이트
+if ($passwordComplexity -match "1") {
+    $json.현황 += "패스워드 복잡성 정책이 적절히 설정되어 있습니다."
+} else {
+    $json.진단결과 = "취약"
+    $json.현황 += "패스워드 복잡성 정책이 적절히 설정되지 않았습니다."
+}
+
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultDir\W-09.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

@@ -1,88 +1,56 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한을 요청합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-32"
+    위험도 = "상"
+    진단 항목 = "해독 가능한 암호화를 사용하여 암호 저장"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "해독 가능한 암호화를 사용하여 암호 저장"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
-echo ------------------------------------------W-32------------------------------------------
-net start | find "World Wide Web Publishing Service" >nul
-IF NOT ERRORLEVEL 1 (
-    FOR /F "tokens=1 delims=#" %%a in ('type C:\Window_%COMPUTERNAME%_raw\http_path.txt') DO (
-        cd %%a
-        echo -----------------------해당 경로------------------------->> C:\Window_%COMPUTERNAME%_raw\W-32.txt
-        cacls %%a /T | findstr /I "Everyone"
-        IF NOT ERRORLEVEL 1 (
-            cacls %%a /T >> C:\Window_%COMPUTERNAME%_raw\W-32.txt
-        ) ELSE (
-            ECHO.
-        )
-        (여기서부터 나머지 파일 타입별로 권한 검사 과정이 반복됩니다...)
-    )
-    cd "%install_path%"
-    type C:\Window_%COMPUTERNAME%_raw\W-32.txt | findstr /I "Everyone" >> C:\Window_%COMPUTERNAME%_raw\W-32-1.txt
-    ECHO n | COMP C:\Window_%COMPUTERNAME%_raw\compare.txt C:\Window_%COMPUTERNAME%_raw\W-32-1.txt
-    IF NOT ERRORLEVEL 1 (
-        echo W-32,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 테스트 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 웹 어플리케이션을 실행하는 서버 디렉터리에 Everyone 사용 권한이 부여되지 않은 상태 보안 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 테스트 종료 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        (보안 상태에 따른 결과 메시지가 반복됩니다...)
-    ) ELSE (
-        (다른 상태에 대한 처리...)
-    )
-) ELSE (
-    echo W-32,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 테스트 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo IIS 서비스가 필요하지 않아 사용되지 않는 상태 보안 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 테스트 종료 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    (IIS 서비스가 필요하지 않은 경우의 처리...)
-)
-echo -------------------------------------------end------------------------------------------
+# 관리자 권한 확인 및 요청
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    $script = "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
+    Start-Process PowerShell.exe -ArgumentList $script -Verb RunAs
+    exit
+}
+
+# 초기 설정
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
+
+# 로컬 보안 정책 내보내기
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+New-Item -Path "$rawDir\compare.txt" -ItemType File -Force | Out-Null
+
+# 시스템 정보 저장
+systeminfo | Out-File "$rawDir\systeminfo.txt"
+
+# IIS 설정 분석
+$applicationHostConfig = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+Get-Content -Path $applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
+$bindingInfo = Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation"
+$bindingInfo | Out-File "$rawDir\iis_path1.txt"
+
+# W-32 디렉토리 권한 검사
+If ((Get-Service -Name "W3SVC" -ErrorAction SilentlyContinue).Status -eq "Running") {
+    $directories = Get-Content "$rawDir\iis_path1.txt"
+    foreach ($dir in $directories) {
+        if (Test-Path $dir) {
+            $acl = Get-Acl $dir
+            $everyone = $acl.Access | Where-Object { $_.IdentityReference -eq "Everyone" }
+            if ($everyone) {
+                "위험: $dir 디렉토리에 Everyone 그룹에 대한 액세스 권한이 부여됨" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+                $json.현황 += "위험: $dir 디렉토리에 Everyone 그룹에 대한 액세스 권한이 부여됨"
+            }
+        }
+    }
+}
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-32.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

@@ -1,80 +1,70 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo Requesting administrative privileges...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "%getadmin.vbs"
-    "%getadmin.vbs"
-	del "%getadmin.vbs"
-    exit /B
+# Initialize audit parameters
+$auditParameters = @{
+    Category = "Account Management"
+    Code = "W-35"
+    RiskLevel = "High"
+    AuditItem = "Use of decryptable encryption for password storage"
+    AuditResult = "Good"  # Assuming "Good" as the default state
+    CurrentStatus = @()
+    MitigationRecommendation = "Use of non-decryptable encryption for password storage"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
+# Request Administrator privileges if not already running with them
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
+    exit
+}
 
-echo ------------------------------------------W-35 WebDAV Security Check------------------------------------------
-net start | find "World Wide Web Publishing Service" >nul
-if NOT ERRORLEVEL 1 (
-    TYPE C:\Windows\System32\inetsrv\config\applicationHost.config | findstr /I "webdav" > C:\Window_%COMPUTERNAME%_raw\W-35-1.txt
-    if NOT ERRORLEVEL 1 (
-        echo WebDAV configurations need review. See W-35-1.txt for details.
-    ) else (
-        echo WebDAV is properly configured or not present.
-    )
-) else (
-    echo IIS Web Publishing Service is not running. No action required.
-)
-echo -------------------------------------------End of WebDAV Security Check------------------------------------------
+# 콘솔 환경 설정
+function Initialize-Console {
+    chcp 437 | Out-Null
+    $host.UI.RawUI.BackgroundColor = "DarkGreen"
+    $host.UI.RawUI.ForegroundColor = "Green"
+    Clear-Host
+    Write-Host "환경을 설정하고 있습니다..."
+}
 
-echo ------------------------------------------결과 요약------------------------------------------
-type C:\Window_%COMPUTERNAME%_result\W-Window-* >> C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
-echo Results have been saved to C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt.
+# 감사 환경 준비
+function Setup-AuditEnvironment {
+    $global:computerName = $env:COMPUTERNAME
+    $global:rawDir = "C:\Audit_${computerName}_RawData"
+    $global:resultDir = "C:\Audit_${computerName}_Results"
 
-echo -------------------------------------------Cleanup-------------------------------------------
-echo Performing cleanup...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+    # 이전 데이터 정리 및 새 디렉터리 준비
+    Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-echo Script has completed.
-exit
+    # 로컬 보안 정책 및 시스템 정보 내보내기
+    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+    systeminfo | Out-File "$rawDir\SystemInfo.txt"
+}
+
+# WebDAV 보안 감사 수행
+function Perform-WebDAVSecurityCheck {
+    Write-Host "WebDAV 보안 검사를 수행하고 있습니다..."
+    $serviceStatus = (Get-Service W3SVC -ErrorAction SilentlyContinue).Status
+
+    if ($serviceStatus -eq "Running") {
+        $webDavConfigurations = Select-String -Path "$env:SystemRoot\System32\inetsrv\config\applicationHost.config" -Pattern "webdav" -AllMatches
+
+        if ($webDavConfigurations) {
+            foreach ($config in $webDavConfigurations) {
+                $config.Line | Out-File -FilePath "$rawDir\WebDAVConfigDetails.txt" -Append
+            }
+            Write-Host "검토 필요: WebDAV 구성이 발견되었습니다. 자세한 내용은 WebDAVConfigDetails.txt 파일을 참조하세요."
+        } else {
+            Write-Host "조치 필요 없음: WebDAV가 적절하게 구성되었거나 존재하지 않습니다."
+        }
+    } else {
+        Write-Host "조치 필요 없음: IIS 웹 게시 서비스가 실행 중이지 않습니다."
+    }
+}
+
+# 주 스크립트 실행
+Initialize-Console
+Setup-AuditEnvironment
+Perform-WebDAVSecurityCheck
+
+# JSON 결과 파일 저장
+$jsonFilePath = "$resultDir\W-35.json"
+$auditParameters | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

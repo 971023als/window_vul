@@ -1,57 +1,55 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한 요청 중...
-    goto UACPrompt
-) else ( goto gotAdmin )
+# JSON 데이터 초기화
+$json = @{
+    분류 = "보안관리"
+    코드 = "W-64"
+    위험도 = "상"
+    진단 항목 = "화면보호기설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "화면보호기설정 조정"
+}
 
-:UACPrompt
-    echo Set UAC = CreateObject("Shell.Application") > "%temp%\getadmin.vbs"
-    echo UAC.ShellExecute "cmd.exe", "/c ""%~s0"" %*", "", "runas", 1 >> "%temp%\getadmin.vbs"
-    "%temp%\getadmin.vbs"
-    del "%temp%\getadmin.vbs"
-    exit /B
+# 관리자 권한으로 스크립트 실행 요청
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------ 설정 ---------------------------------------
-rd /S /Q C:\Windows_Security_Audit\%COMPUTERNAME%_raw
-rd /S /Q C:\Windows_Security_Audit\%COMPUTERNAME%_result
-mkdir C:\Windows_Security_Audit\%COMPUTERNAME%_raw
-mkdir C:\Windows_Security_Audit\%COMPUTERNAME%_result
+$computerName = $env:COMPUTERNAME
+$rawDirectory = "C:\Windows_Security_Audit\${computerName}_raw"
+$resultDirectory = "C:\Windows_Security_Audit\${computerName}_result"
 
-echo ------------------------------------------ W-64 스크린 세이버 정책 확인 ------------------------------------------
-reg query "HKCU\Control Panel\Desktop" | find "ScreenSaveActive" | findstr /I "1" >> C:\Windows_Security_Audit\%COMPUTERNAME%_raw\W-64-1.txt
-reg query "HKCU\Control Panel\Desktop" | find "ScreenSaverIsSecure" | findstr /I "1" >> C:\Windows_Security_Audit\%COMPUTERNAME%_raw\W-64-2.txt
+# 기존 정보 삭제 및 새 디렉터리 생성
+Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory -Force | Out-Null
 
-for /f "tokens=3" %%a in ('reg query "HKCU\Control Panel\Desktop" ^| find "ScreenSaveTimeOut"') do set ScreenSaveTimeOut=%%a
+# 스크린 세이버 정책 확인
+$screenSaveActive = (Get-ItemProperty -Path "HKCU:\Control Panel\Desktop").ScreenSaveActive
+$screenSaverIsSecure = (Get-ItemProperty -Path "HKCU:\Control Panel\Desktop").ScreenSaverIsSecure
+$screenSaveTimeOut = (Get-ItemProperty -Path "HKCU:\Control Panel\Desktop").ScreenSaveTimeOut
 
-:: 스크린 세이버 활성화 및 안전한 로그온 확인
-type C:\Windows_Security_Audit\%COMPUTERNAME%_raw\W-64-1.txt | find "1" > nul
-if NOT ERRORLEVEL 1 (
-    type C:\Windows_Security_Audit\%COMPUTERNAME%_raw\W-64-2.txt | find "1" > nul
-    if NOT ERRORLEVEL 1 (
-        if "%ScreenSaveTimeOut%" LSS "601" (
-            echo W-64,O,^|>> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-            echo 스크린 세이버 정책 설정이 취약합니다. >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-            echo - 스크린 세이버 활성화[ScreenSaveActive]: 1 >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-            echo - 안전한 로그온 요구[ScreenSaverIsSecure]: 1 >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-            echo - 설정된 대기 시간[ScreenSaveTimeOut]: %ScreenSaveTimeOut%초 >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        ) else (
-            echo W-64,X,^|>> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-            echo 스크린 세이버 정책 설정이 안전합니다. >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        )
-    ) else (
-        echo W-64,X,^|>> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 안전한 로그온이 요구되지 않습니다. 취약할 수 있습니다. >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    )
-) else (
-    echo W-64,X,^|>> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 스크린 세이버가 비활성화되어 있습니다. 취약할 수 있습니다. >> C:\Windows_Security_Audit\%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
+If ($screenSaveActive -eq "1") {
+    If ($screenSaverIsSecure -eq "1") {
+        If ($screenSaveTimeOut -lt 600) {
+            $json.진단 결과 = "취약"
+            $json.현황 += "스크린 세이버가 활성화되었으나, 타임아웃 시간이 10분 미만으로 설정되어 있습니다."
+        } else {
+            $json.현황 += "스크린 세이버가 적절히 설정되어 있습니다."
+        }
+    } else {
+        $json.진단 결과 = "취약"
+        $json.현황 += "안전한 로그온이 요구되지 않는 스크린 세이버가 설정되어 있습니다."
+    }
+} else {
+    $json.진단 결과 = "취약"
+    $json.현황 += "스크린 세이버가 비활성화되어 있습니다."
+}
 
-echo 결과가 C:\Windows_Security_Audit\%COMPUTERNAME%_result 폴더에 저장되었습니다.
-echo 스크립트를 종료합니다.
-exit
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDirectory\W-64.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+
+# 결과 출력
+Write-Host "Results have been saved to $resultDirectory 폴더에 저장되었습니다."
+Write-Host "스크립트를 종료합니다."

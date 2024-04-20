@@ -1,62 +1,55 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# 변수 초기화
+$분류 = "계정 관리"
+$코드 = "W-29"
+$위험도 = "높음"
+$진단_항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+$진단_결과 = "양호"  # 기본 상태를 '양호'로 가정, 진단 후 상태 업데이트 예정
+$현황 = @()
+$대응방안 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용을 피하세요"
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정------------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS 설정---------------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------종료-------------------------------------------
+$json = @{
+    분류 = $분류
+    코드 = $코드
+    위험도 = $위험도
+    진단_항목 = $진단_항목
+    진단_결과 = $진단_결과
+    현황 = $현황
+    대응방안 = $대응방안
+}
 
-REM W-29 섹션은 여기서 시작합니다. 필요한 경우 이 부분을 수정하여 원하는 작업을 수행하도록 구성할 수 있습니다.
+# 관리자 권한 요청
+$currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
 
-echo -------------------------------------------W-29 분석 시작-------------------------------------------
-REM 여기에 W-29 관련 로직을 구현합니다.
-echo -------------------------------------------W-29 분석 종료-------------------------------------------
+# 환경 설정 및 디렉터리 구성
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory
 
-echo 결과 파일 경로: C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
+# 로컬 보안 정책 내보내기
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+New-Item -Path "$rawDir\compare.txt" -ItemType File
+
+# 시스템 정보 저장
+systeminfo | Out-File "$rawDir\systeminfo.txt"
+
+# IIS 설정 분석
+$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
+$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+(Get-Content "$rawDir\iis_path1.txt" -Raw) | Out-File "$rawDir\line.txt"
+
+# 분석을 위한 경로 추출
+1..5 | ForEach-Object {
+    $pathNumber = $_
+    (Get-Content "$rawDir\line.txt" -Raw) -split '\*' | Select-Object -Index ($pathNumber - 1) | Out-File "$rawDir\path$pathNumber.txt"
+}
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-29.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

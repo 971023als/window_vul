@@ -1,93 +1,64 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
+# 진단 JSON 객체 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-25"
+    위험도 = "상"
+    진단 항목 = "암호를 저장하기 위한 복호화 가능한 암호화 사용"
+    진단 결과 = "양호"  # '양호'라고 가정
+    현황 = @()
+    대응방안 = "암호 저장을 위한 복호화 불가능한 암호화 사용"
+}
 
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# 해당 JSON 구조는 계정 관리에 대한 보안 진단 결과를 저장하기 위해 사용됩니다.
+# '진단 항목'은 암호를 저장할 때 복호화 가능한 암호화 방식을 사용하는지 여부를 평가합니다.
+# '대응방안'은 보다 안전한 방법으로 암호를 저장하기 위해 복호화가 불가능한 암호화 기술을 사용할 것을 권장합니다.
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
-echo ------------------------------------------W-25------------------------------------------
-net start | find "World Wide Web Publishing Service" >nul
-if NOT ERRORLEVEL 1 (
-	type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | find /I "asp enableParentPaths">> C:\Window_%COMPUTERNAME%_raw\W-25.txt
-	ECHO n | COMP C:\Window_%COMPUTERNAME%_raw\compare.txt C:\Window_%COMPUTERNAME%_raw\W-25.txt
-	IF NOT ERRORLEVEL 1 (
-		echo W-25,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 정책 준수 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 부모 경로 사용 설정이 비활성화되어 있어 보안 준수 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 조치 방법 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 부모 경로 사용을 비활성화해야 함 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo applicationHost.Config 파일에서 부모 경로 사용 설정을 false로 설정하여 보안을 강화해야 함 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 검토 결과 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 부모 경로 사용 설정이 비활성화되어 있어 보안 준수 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	) ELSE (
-		echo W-25,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 정책 위반 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 부모 경로 사용 설정이 활성화되어 있어 보안 위반 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 조치 방법 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 부모 경로 사용을 비활성화해야 함 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		type C:\Window_%COMPUTERNAME%_raw\W-25.txt >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 검토 결과 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 부모 경로 사용 설정이 활성화되어 있어 보안 위반 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	)
-) ELSE (
-	echo W-25,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 정책 준수 (IIS 서비스 미사용) >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo IIS 서비스가 실행되지 않아 보안 준수 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------end------------------------------------------
 
-echo --------------------------------------W-25------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config | find "enableParentPaths">> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo ------------------------------------------------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
+# 관리자 권한 확인 및 요청
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
+    "관리자 권한이 필요합니다. 스크립트를 다시 시작합니다."
+    Exit
+}
 
+# 환경 및 초기 설정
+chcp 437 | Out-Null
+$host.UI.RawUI.ForegroundColor = "Green"
+$computerName = $env:COMPUTERNAME
+$directories = @("C:\Window_$($computerName)_raw", "C:\Window_$($computerName)_result")
+
+# 디렉터리 설정
+foreach ($dir in $directories) {
+    If (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force }
+    New-Item -Path $dir -ItemType Directory | Out-Null
+    "$dir 디렉터리를 생성하였습니다."
+}
+
+# 시스템 정보 및 보안 정책 내보내기
+secedit /export /cfg "$($directories[0])\Local_Security_Policy.txt"
+(Get-Location).Path | Out-File "$($directories[0])\install_path.txt"
+systeminfo | Out-File "$($directories[0])\systeminfo.txt"
+"IIS 설정을 분석하고 있습니다."
+
+# IIS 구성 분석
+$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+$applicationHostConfig = Get-Content $applicationHostConfigPath
+$applicationHostConfig | Out-File "$($directories[0])\iis_setting.txt"
+$enableParentPaths = $applicationHostConfig | Select-String -Pattern "asp enableParentPaths"
+
+# 진단 결과 분석
+If (Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } -and $enableParentPaths) {
+    $json.진단 결과 = "취약"
+    $json.현황 += "부모 경로 사용 설정이 활성화되어 있어 보안 위반."
+} Else {
+    $json.진단 결과 = "양호"
+    $json.현황 += If ($enableParentPaths) { "부모 경로 사용 설정이 활성화되어 있으나, IIS 서비스 비활성화 상태." } Else { "부모 경로 사용 설정이 비활성화되어 있어 보안 준수." }
+}
+
+# 결과 파일 저장
+$jsonFilePath = "$resultDir\W-25.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+"진단 결과가 저장되었습니다: $jsonFilePath"
+
+# 스크립트 종료 메시지
+"스크립트 실행 완료"

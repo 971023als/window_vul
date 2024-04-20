@@ -1,139 +1,75 @@
-rem windows server script edit 2020
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo ������ ������ ��û�մϴ�...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# Define the initial JSON data structure
+$json = @{
+    "분류" = "보안관리"
+    "코드" = "W-78"
+    "위험도" = "상"
+    "진단 항목" = "보안 채널 데이터 디지털 암호화 또는 서명"
+    "진단 결과" = "양호" # Assuming default value is "Good"
+    "현황" = @()
+    "대응방안" = "보안 채널 데이터 디지털 암호화 또는 서명"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
-echo ------------------------------------------W-78------------------------------------------
-type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "RequireSignOrSeal" | find "1" >nul
-IF NOT ERRORLEVEL 1 (
-	REM ���
-	type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "SealSecureChannel" | find "1" >nul
-	IF NOT ERRORLEVEL 1 (
-		REM ���
-		type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "SignSecureChannel" | find "1" >nul
-		IF NOT ERRORLEVEL 1 (
-			REM ���
-			echo W-78,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO �Ʒ� 3���� ��å�� "���"���� ���� �Ǿ��ִ� ��� ��ȣ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo ������ ������: ���� ä��: �����͸� ������ ��ȣȭ �Ǵ�, ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ��ȣȭ ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo �� ��Ȳ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO �� 3���� ��å�� "���"���� ���� �Ǿ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "RequireSignOrSeal SealSecureChannel SignSecureChannel" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO �� 3���� ��å�� "���"���� ���� �Ǿ������Ƿ� ��ȣ�� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		) ELSE (
-			REM ��ȣ
-			echo W-78,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO �Ʒ� 3���� ��å�� "���"���� ���� �Ǿ��ִ� ��� ��ȣ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo ������ ������: ���� ä��: �����͸� ������ ��ȣȭ �Ǵ�, ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ��ȣȭ ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo �� ��Ȳ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo ������ ������: ���� ä��: ����ä�� �����͸� ������ ��ȣȭ ��å�� "��� �� ��"���� �����Ǿ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "RequireSignOrSeal SealSecureChannel SignSecureChannel" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo ������ ������: ���� ä��: ����ä�� �����͸� ������ ��ȣȭ ��å�� "��� �� ��"���� �����Ǿ������Ƿ� ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-			echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		)
-	) ELSE (
-		REM ��ȣ
-		echo W-78,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		ECHO �Ʒ� 3���� ��å�� "���"���� ���� �Ǿ��ִ� ��� ��ȣ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo ������ ������: ���� ä��: �����͸� ������ ��ȣȭ �Ǵ�, ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ��ȣȭ ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo �� ��Ȳ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ���� ��å�� "��� �� ��"���� �����Ǿ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "RequireSignOrSeal SealSecureChannel SignSecureChannel" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ���� ��å�� "��� �� ��"���� �����Ǿ������Ƿ� ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	)
-) ELSE (
-	REM ��ȣ
-	echo W-78,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	ECHO �Ʒ� 3���� ��å�� "���"���� ���� �Ǿ��ִ� ��� ��ȣ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ������ ������: ���� ä��: �����͸� ������ ��ȣȭ �Ǵ�, ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ���� ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	ECHO ������ ������: ���� ä��: ����ä�� �����͸� ������ ��ȣȭ ��å�� "���" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ��Ȳ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ������ ������: ���� ä��: �����͸� ������ ��ȣȭ �Ǵ�, ���� ��å�� "��� �� ��"���� �����Ǿ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Findstr /I "RequireSignOrSeal SealSecureChannel SignSecureChannel" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ������ ������: ���� ä��: �����͸� ������ ��ȣȭ �Ǵ�, ���� ��å�� "��� �� ��"���� �����Ǿ������Ƿ� ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------end------------------------------------------
-echo ------------------------------------------결과 요약------------------------------------------
-:: 결과 요약 보고
-type C:\Window_%COMPUTERNAME%_result\W-Window-* >> C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
+# Check for administrator privileges
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "관리자 권한으로 실행해야 합니다."
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb", "RunAs"
+    Exit
+}
 
-:: 이메일로 결과 요약 보내기 (가상의 명령어, 실제 환경에 맞게 수정 필요)
-:: sendmail -to admin@example.com -subject "Security Audit Summary" -body C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
+# Environment setup
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
 
-echo 결과가 C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt 에 저장되었습니다.
+# Create directories
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
-:: 정리 작업
-echo 정리 작업을 수행합니다...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+# Export local security policy
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
 
-echo 스크립트를 종료합니다.
-exit
+# Collect system information
+systeminfo | Out-File "$rawDir\systeminfo.txt"
+
+# Analyze IIS configuration
+$iisConfigPath = "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config"
+if (Test-Path $iisConfigPath) {
+    Get-Content $iisConfigPath | Select-String "physicalPath|bindingInformation" | Out-File "$rawDir\iis_setting.txt"
+}
+
+# Analyze security policies related to secure channel settings
+$securityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
+$conditionsMet = $securityPolicy | Where-Object {
+    ($_ -match "RequireSignOrSeal.*1") -or
+    ($_ -match "SealSecureChannel.*1") -or
+    ($_ -match "SignSecureChannel.*1")
+}
+
+# Record findings to a result file
+$resultFilePath = "$resultDir\W-Window-${computerName}-result.txt"
+if ($conditionsMet) {
+    "W-78,O,| 보안 정책 분석 결과: 모든 조건 만족" | Out-File $resultFilePath -Append
+} else {
+    "W-78,X,| 보안 정책 분석 결과: 하나 이상의 조건 불만족" | Out-File $resultFilePath -Append
+}
+
+# Update JSON data based on analysis
+if ($conditionsMet) {
+    $json.현황 += "보안 채널 설정이 적절합니다."
+} else {
+    $json.진단 결과 = "취약"
+    $json.현황 += "보안 채널 설정이 적절하지 않습니다."
+}
+
+# Save JSON results to a file
+$jsonFilePath = "$resultDir\W-78.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+
+# Summarize results
+Get-Content $resultFilePath | Out-File "$resultDir\security_audit_summary.txt"
+Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
+
+# Cleanup
+Remove-Item "$rawDir\*" -Force
+Write-Host "스크립트가 완료되었습니다."

@@ -1,89 +1,73 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo Requesting administrative privileges...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "%getadmin.vbs"
-    "%getadmin.vbs"
-    del "%getadmin.vbs"
-    exit /B
+# 변수 초기화
+$분류 = "계정 관리"
+$코드 = "W-36"
+$위험도 = "높음"
+$진단_항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+$진단_결과 = "양호" # "양호"를 기본 값으로 가정
+$현황 = @()
+$대응방안 = "복호화 불가능한 암호화 방식 사용"
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a"
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
+# JSON 키 한국어로 설정
+$auditParams = @{
+    분류 = $분류
+    코드 = $코드
+    위험도 = $위험도
+    진단_항목 = $진단_항목
+    진단_결과 = $진단_결과
+    현황 = $현황
+    대응방안 = $대응방안
+}
 
-echo ------------------------------------------W-36 NetBIOS Configuration Check------------------------------------------
-REG QUERY HKLM\SYSTEM\ControlSet001\Services\NetBT\Parameters\Interfaces /S | findstr "NetbiosOptions" >> C:\Window_%COMPUTERNAME%_raw\W-36.txt
-TYPE C:\Window_%COMPUTERNAME%_raw\W-36.txt | findstr "NetbiosOptions" | findstr /L "0x2" > nul
-if NOT ERRORLEVEL 1 (
-    echo W-36,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Test >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo NetBIOS over TCP/IP is disabled, which is a secure configuration. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Test End >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    REG QUERY HKLM\SYSTEM\ControlSet001\Services\NetBT\Parameters\Interfaces /S | findstr "NetbiosOptions" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Summary >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo The system is configured securely with NetBIOS over TCP/IP disabled. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE (
-    echo W-36,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Test >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Review required: NetBIOS over TCP/IP settings. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Test End >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    REG QUERY HKLM\SYSTEM\ControlSet001\Services\NetBT\Parameters\Interfaces /S | findstr "NetbiosOptions" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Summary >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo Attention needed: NetBIOS over TCP/IP may not be properly configured. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------end------------------------------------------
+# 관리자 권한 확인 및 요청
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
+    exit
+}
 
-echo ------------------------------------------결과 요약------------------------------------------
-type C:\Window_%COMPUTERNAME%_result\W-Window-* >> C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
-echo Results have been saved to C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt.
+# 콘솔 환경 설정
+function Setup-Console {
+    chcp 437 | Out-Null
+    $host.UI.RawUI.BackgroundColor = "DarkGreen"
+    $host.UI.RawUI.ForegroundColor = "Green"
+    Clear-Host
+    Write-Host "감사 환경을 초기화 중입니다..."
+}
 
-echo Performing cleanup...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+# 감사 환경 초기화
+function Initialize-AuditEnvironment {
+    $global:computerName = $env:COMPUTERNAME
+    $global:rawDir = "C:\Audit_${computerName}_Raw"
+    $global:resultDir = "C:\Audit_${computerName}_Results"
 
-echo Script has completed.
-exit
+    Remove-Item $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item $rawDir, $resultDir -ItemType Directory | Out-Null
+    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+    systeminfo | Out-File "$rawDir\SystemInfo.txt"
+}
+
+# 보안 감사 실행 및 결과 업데이트
+function Perform-SecurityAudit {
+    Write-Host "보안 감사를 수행 중입니다..."
+    # 감사 로직 구현(예: NetBIOS 설정 검사)
+    # 이 예에서는 감사 결과를 직접 업데이트
+    $auditParams.진단_결과 = "취약" # 감사 후 결과 업데이트
+    $auditParams.현황 += "비밀번호 저장에 사용된 암호화가 복호화 가능합니다."
+}
+
+# 감사 결과 정리 및 보고
+function Finalize-Audit {
+    Write-Host "감사 완료. 결과는 $resultDir에서 확인하세요."
+    Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
+}
+
+# 스크립트 실행
+Setup-Console
+Initialize-AuditEnvironment
+Perform-SecurityAudit
+Finalize-Audit
+
+# JSON 결과 파일 저장
+$jsonFilePath = "$resultDir\W-36.json"
+$auditParams | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"

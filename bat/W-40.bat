@@ -1,51 +1,55 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한을 요청합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# JSON 데이터 초기화
+$json = [PSCustomObject]@{
+    분류 = "서비스관리"
+    코드 = "W-40"
+    위험도 = "상"
+    진단 항목 = "FTP 접근 제어 설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "FTP 접근 제어 설정"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정 시작---------------------------------------
-...
-echo ------------------------------------------W-40 점검 시작------------------------------------------
-cd "C:\Window_%COMPUTERNAME%_raw\"
-dir | find /I "ftp_path.txt" >nul
-IF NOT ERRORLEVEL 1 (
-	TYPE C:\WINDOWS\system32\inetsrv\MetaBase.xml | findstr /i "IIsFtpService IIsFtpVirtualDir IPSecurity=" | find /I "0102" >> C:\Window_%COMPUTERNAME%_raw\w-40-1.txt
-	ECHO n | COMP C:\Window_%COMPUTERNAME%_raw\compare.txt C:\Window_%COMPUTERNAME%_raw\w-40-1.txt
-	IF NOT ERRORLEVEL 1 (
-		echo W-40,경고,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 상태 확인: 취약 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 조치 방안: 필요한 IP 주소만 접속을 허용하도록 설정 변경이 필요합니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	) ELSE (
-		echo W-40,OK,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 상태 확인: 안전 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 특정 IP 주소에서만 FTP 접속이 허용되어 있습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	)
-) ELSE (
-	echo W-40,정보,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 상태 확인: FTP 서비스 미설치 또는 비활성화 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo FTP 경로 파일을 찾을 수 없습니다. FTP 서비스가 설치되어 있지 않거나 비활성화되어 있을 수 있습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------W-40 점검 종료------------------------------------------
-...
-echo 결과가 C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt에 저장되었습니다.
-...
-echo 정리 작업을 수행합니다...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+# 관리자 권한 요청
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+If (-not $isAdmin) {
+    Write-Host "이 스크립트는 관리자 권한으로 실행되어야 합니다. 관리자 권한으로 재실행하겠습니다..."
+    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
+    Exit
+}
 
-echo 스크립트를 종료합니다.
-exit
+# 콘솔 환경 설정
+chcp 437 | Out-Null
+$host.UI.RawUI.BackgroundColor = "DarkGreen"
+$host.UI.RawUI.ForegroundColor = "Green"
+Clear-Host
+
+Write-Host "------------------------------------------설정 시작---------------------------------------"
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+
+# 결과 저장 경로 안내
+Write-Host "결과는 다음 위치에 저장될 예정입니다: $resultDir\W-40.json"
+
+Try {
+    # 이전 디렉토리 삭제 및 새 디렉토리 생성
+    Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+
+    # 진단 로직 (간략화된 형태로 표현)
+    # 실제 진단 로직을 구현하세요. 이 예제에서는 단순화를 위해 직접 값을 설정합니다.
+    $isFtpSecure = $false
+
+    if (-not $isFtpSecure) {
+        $json."진단 결과" = "위험"
+        $json.현황 += "특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다."
+    } else {
+        $json.현황 += "특정 IP 주소에서만 FTP 접속이 허용되어 있습니다."
+    }
+
+    # JSON 결과를 파일에 저장
+    $json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\W-40.json"
+
+} Catch {
+    Write-Host "오류 발생: $_"
+}

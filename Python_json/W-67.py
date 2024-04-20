@@ -1,64 +1,47 @@
-import os
-import json
-import subprocess
-from winreg import ConnectRegistry, OpenKey, QueryValueEx, HKEY_LOCAL_MACHINE
+# JSON 데이터 구조 초기화
+$json = @{
+    Category = "보안 관리"
+    Code = "W-67"
+    RiskLevel = "높음"
+    DiagnosticItem = "보안 감사를 기록할 수 없는 경우 시스템 즉시 종료"
+    DiagnosticResult = "양호"  # 기본값으로 '양호' 가정
+    Status = @()
+    Countermeasure = "보안 감사를 기록할 수 없는 경우 시스템을 종료하도록 정책을 적절하게 구성"
+}
 
-def check_admin_rights():
-    """ Check if the script is run as an administrator. """
-    try:
-        return os.getuid() == 0
-    except AttributeError:
-        import ctypes
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+# 관리자 권한 요청 및 확인
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
 
-def setup_directories(computer_name):
-    """ Prepare directories for storing results. """
-    raw_dir = f"C:\\Window_{computer_name}_raw"
-    result_dir = f"C:\\Window_{computer_name}_result"
-    os.makedirs(raw_dir, exist_ok=True)
-    os.makedirs(result_dir, exist_ok=True)
-    return raw_dir, result_dir
+# 환경 및 디렉토리 설정
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
 
-def check_policy_settings():
-    """ Check the system policy settings related to anonymous enumeration. """
-    registry = ConnectRegistry(None, HKEY_LOCAL_MACHINE)
-    lsa_key_path = r"SYSTEM\CurrentControlSet\Control\LSA"
-    try:
-        with OpenKey(registry, lsa_key_path) as key:
-            restrict_anonymous = QueryValueEx(key, "restrictanonymous")[0]
-            restrict_anonymous_sam = QueryValueEx(key, "RestrictAnonymousSAM")[0]
-            if restrict_anonymous == 1 and restrict_anonymous_sam == 1:
-                return "양호", ["익명 SAM 계정 접근을 제한하는 설정이 적절히 구성되었습니다."]
-            else:
-                return "취약", ["익명 SAM 계정 접근을 제한하는 설정이 적절히 구성되지 않았습니다."]
-    except FileNotFoundError:
-        return "취약", ["레지스트리 설정을 확인할 수 없습니다."]
-
-def main():
-    if not check_admin_rights():
-        print("이 스크립트는 관리자 권한으로 실행되어야 합니다.")
-        return
-    
-    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
-    raw_dir, result_dir = setup_directories(computer_name)
-    
-    diagnosis_result, status_messages = check_policy_settings()
-    
-    result = {
-        "분류": "보안관리",
-        "코드": "W-68",
-        "위험도": "상",
-        "진단 항목": "SAM 파일 접근 통제 설정",
-        "진단 결과": diagnosis_result,
-        "현황": status_messages,
-        "대응방안": "익명 열거를 허용하지 않도록 시스템 정책을 설정"
+# 감사 실패 처리 정책 확인
+try {
+    $policyValue = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "CrashOnAuditFail"
+    if ($policyValue.CrashOnAuditFail -eq 1) {
+        $json.DiagnosticResult = "양호"
+        $json.Status += "보안 감사를 기록할 수 없는 경우 시스템을 종료하도록 구성되어 보안이 강화되었습니다."
+    } else {
+        $json.DiagnosticResult = "취약"
+        $json.Status += "보안 감사를 기록할 수 없는 경우 시스템이 종료되지 않도록 구성되어 있어 보안 위험이 있을 수 있습니다."
     }
-    
-    json_path = os.path.join(result_dir, f"W-68_{computer_name}_diagnostic_results.json")
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, ensure_ascii=False, indent=4)
-    
-    print(f"진단 결과가 저장되었습니다: {json_path}")
+} catch {
+    $json.DiagnosticResult = "오류"
+    $json.Status += "감사 실패 처리 정책 설정을 검색하는 데 실패했습니다."
+}
 
-if __name__ == "__main__":
-    main()
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultDir\W-67.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+
+# 정리 및 스크립트 종료
+Remove-Item -Path "$rawDir\*" -Force
+Write-Host "스크립트가 완료되었습니다. 결과가 $resultDir 에 저장되었습니다."

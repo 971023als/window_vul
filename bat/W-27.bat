@@ -1,82 +1,59 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# 진단 결과를 위한 JSON 객체 정의
+$json = @{
+    분류 = "계정 관리"
+    코드 = "W-27"
+    위험도 = "높음"
+    진단항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
+    진단결과 = "양호"  # 기본 상태를 '양호'로 가정
+    현황 = @()
+    대응방안 = "비밀번호 저장을 위한 복호화 불가능한 암호화 사용"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
-echo ------------------------------------------W-27------------------------------------------
-net start | find "World Wide Web Publishing Service" >nul
-IF NOT ERRORLEVEL 1 (
-	reg query "HKLM\SYSTEM\CurrentControlSet\Services\IISADMIN" | find "ObjectName" | find "LocalSystem" > nul
-	IF NOT ERRORLEVEL 1 (
-		echo W-27,N/A,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo IISADMIN 서비스가 LocalSystem 계정으로 실행되지 않으므로 특별한 조치가 필요하지 않습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 해당 설정은 보안에 영향을 줄 수 있는 중요한 설정이며, LocalSystem 계정 대신 더 제한적인 권한을 가진 계정을 사용하는 것이 권장됩니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	) ELSE (
-		echo W-27,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo IISADMIN 서비스가 LocalSystem 계정으로 실행됩니다. 이는 권장되지 않습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		echo 보안을 강화하려면, IISADMIN 서비스를 더 제한적인 권한을 가진 계정으로 실행하도록 변경해야 합니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-		reg query "HKLM\SYSTEM\CurrentControlSet\Services\IISADMIN" | find "ObjectName" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	)
-) ELSE (
-	echo W-27,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo World Wide Web Publishing Service가 실행되지 않고 있습니다. IIS 관련 보안 설정을 검토할 필요가 없습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------end-------------------------------------------
+# 이 JSON 구조는 계정 관리에 대한 보안 진단을 목적으로 합니다.
+# '진단항목'은 비밀번호 저장 시 복호화 가능한 암호화를 사용하는 문제를 평가합니다.
+# '대응방안'은 비밀번호를 보다 안전하게 저장하기 위해 복호화 불가능한 암호화 기술을 사용할 것을 권장합니다.
 
-echo --------------------------------------W-27------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt  
-reg query "HKLM\SYSTEM\CurrentControlSet\Services\W3SVC" | FINDSTR /L "ObjectName">> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-reg query "HKLM\SYSTEM\CurrentControlSet\Services\IISADMIN" | FINDSTR /L "ObjectName">> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo ------------------------------------------------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo --------------------------localgroup Administrators---------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-net localgroup Administrators>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo ------------------------------------------------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
 
+# 관리자 권한 요청
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
+    exit
+}
+
+# 환경 설정
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue -Force
+New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+$null = New-Item -Path "$rawDir\compare.txt" -ItemType File
+Set-Location -Path $rawDir
+[System.IO.File]::WriteAllText("$rawDir\install_path.txt", (Get-Location).Path)
+systeminfo | Out-File "$rawDir\systeminfo.txt"
+
+# IIS 설정 분석
+$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
+if (Test-Path $applicationHostConfigPath) {
+    Get-Content $applicationHostConfigPath | Out-File "$rawDir\iis_setting.txt"
+    Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+} else {
+    Write-Output "IIS configuration file not found."
+}
+
+# IISADMIN 서비스 계정 검사
+$serviceStatus = Get-Service W3SVC -ErrorAction SilentlyContinue
+if ($serviceStatus.Status -eq 'Running') {
+    $iisAdminReg = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\IISADMIN" -Name "ObjectName" -ErrorAction SilentlyContinue
+    if ($iisAdminReg -and $iisAdminReg.ObjectName -ne "LocalSystem") {
+        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되지 않고 있습니다. 특별한 조치가 필요하지 않습니다."
+    } elseif ($iisAdminReg) {
+        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되고 있습니다. 권장되지 않습니다."
+    }
+} else {
+    $json.CurrentStatus += "월드 와이드 웹 퍼블리싱 서비스가 실행되지 않고 있습니다. IIS 관련 보안 구성 검토가 필요 없습니다."
+}
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-27.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

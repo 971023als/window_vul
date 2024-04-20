@@ -1,44 +1,61 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# JSON 데이터 초기화
+$json = @{
+    분류 = "서비스관리"
+    코드 = "W-44"
+    위험도 = "상"
+    진단 항목 = "터미널 서비스 암호화 수준 설정"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "터미널 서비스 암호화 수준 설정"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정 시작---------------------------------------
-...
-echo ------------------------------------------IIS 설정-----------------------------------
-...
-echo ------------------------------------------end-------------------------------------------
-echo ------------------------------------------W-44 RDP 최소 암호화 수준 검사 시작------------------------------------------
-FOR /F "tokens=2 delims=x" %%G in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" ^| findstr "MinEncryptionLevel"') DO set MEL=%%G
-IF "%MEL%" GTR "1" (
-	echo W-44,OK,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo RDP 최소 암호화 수준이 적절히 설정되어 있습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" | findstr "MinEncryptionLevel" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE (
-	echo W-44,경고,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo RDP 최소 암호화 수준이 낮게 설정되어 있어 보안에 취약할 수 있습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" | findstr "MinEncryptionLevel" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------W-44 RDP 최소 암호화 수준 검사 종료------------------------------------------
-...
-echo 결과가 C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt에 저장되었습니다.
-...
-echo 정리 작업을 수행합니다...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+# 관리자 권한 요청
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
+    exit
+}
 
-echo 스크립트를 종료합니다.
-exit
+# 콘솔 환경 설정
+chcp 437 | Out-Null
+$host.UI.RawUI.BackgroundColor = "DarkGreen"
+$host.UI.RawUI.ForegroundColor = "Green"
+Clear-Host
+
+Write-Host "------------------------------------------설정 시작---------------------------------------"
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
+
+# 이전 디렉토리 삭제 및 새 디렉토리 생성
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+
+# RDP 최소 암호화 수준 검사 시작
+Write-Host "------------------------------------------W-44 RDP 최소 암호화 수준 검사 시작------------------------------------------"
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
+$minEncryptionLevel = (Get-ItemProperty -Path $regPath -Name "MinEncryptionLevel" -ErrorAction SilentlyContinue).MinEncryptionLevel
+
+if ($minEncryptionLevel -and $minEncryptionLevel -gt 1) {
+    $json."진단 결과" = "양호"
+    $json.현황 += "RDP 최소 암호화 수준이 적절히 설정되어 있습니다."
+} else {
+    $json."진단 결과" = "취약"
+    $json.현황 += "RDP 최소 암호화 수준이 낮게 설정되어 있어 보안에 취약할 수 있습니다."
+}
+Write-Host "-------------------------------------------W-44 RDP 최소 암호화 수준 검사 종료------------------------------------------"
+
+# JSON 결과를 파일에 저장
+$jsonFilePath = "$resultDir\W-44.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+
+# 결과 요약
+# The original script incorrectly references a file path that doesn't match the actual output location
+Write-Host "결과 요약이 $jsonFilePath 에 저장되었습니다."
+
+# 정리 작업
+Write-Host "정리 작업을 수행합니다..."
+Remove-Item "$rawDir\*" -Force
+
+Write-Host "스크립트를 종료합니다."

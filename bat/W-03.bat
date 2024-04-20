@@ -1,121 +1,61 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-    del "getadmin.vbs"
-    exit /B
+# JSON 객체 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-03"
+    위험도 = "상"
+    진단항목 = "불필요한 계정 제거"
+    진단결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "불필요한 계정 제거"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS 설정-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------끝-------------------------------------------
+# 관리자 권한 확인 및 요청
+function Test-Admin {
+    $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
 
-echo ------------------------------------------W-03------------------------------------------
-cd C:\Window_%COMPUTERNAME%_raw\
-net user | find /v "성공적으로" | find /v "사용자" >> user.txt 
-FOR /F "tokens=1" %%j IN ('type C:\Window_%COMPUTERNAME%_raw\user.txt') DO (
-net user %%j | find "계정 활성 상태" | findstr "Yes" >nul 
-    IF NOT ERRORLEVEL 1 (
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        net user %%j | find "사용자 이름" >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        net user %%j | find "계정 활성 상태" >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-    ) ELSE (
-        ECHO.
-    )
-)
-ECHO.
-FOR /F "tokens=2" %%y IN ('type C:\Window_%COMPUTERNAME%_raw\user.txt') DO (
-net user %%y | find "계정 활성 상태" | findstr "Yes" >nul 
-    IF NOT ERRORLEVEL 1 (
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        net user %%y | find "사용자 이름" >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        net user %%y | find "계정 활성 상태" >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-    ) ELSE (
-        ECHO.
-    )
-)
-ECHO.
-FOR /F "tokens=3" %%b IN ('type C:\Window_%COMPUTERNAME%_raw\user.txt') DO (
-net user %%b | find "계정 활성 상태" | findstr "Yes" >nul 
-    IF NOT ERRORLEVEL 1 (
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        net user %%b | find "사용자 이름" >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        net user %%b | find "계정 활성 상태" >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_info.txt 
-    ) ELSE (
-        ECHO.
-    )
-)
-ECHO.
-cd "%install_path%"
-type C:\Window_%COMPUTERNAME%_raw\user_info.txt | findstr /I "test guest" >nul 
-IF NOT ERRORLEVEL 1 (
-    echo W-03,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 위반 사항이 감지되었습니다 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 시스템에 활성화되어서는 안 되는 사용자 계정이 존재합니다 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 권장 조치 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo test 및 Guest라는 이름의 사용자 계정을 비활성화하거나 제거하십시오 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\user_info.txt>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 추가 세부 사항 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo test 계정은 특히 중요하며 즉시 조치를 취해야 합니다 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE ( 
-    echo W-03,C,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 위반 사항이 없습니다 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 시스템에 금지된 사용자 계정이 존재하지 않습니다 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 조치가 필요 없습니다 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\user_info.txt >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 추가 세부 사항 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 규정 준수를 보장하기 위해 정기적으로 사용자 계정을 검토하고 모니터링하십시오 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------끝------------------------------------------
+if (-not (Test-Admin)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
 
-echo --------------------------------------W-03------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-net user | find /V "성공적으로">> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo ------------------------------------------------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
+# 콘솔 환경 설정
+[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
+Write-Host "------------------------------------------설정---------------------------------------"
+
+$computerName = $env:COMPUTERNAME
+$rawPath = "C:\Window_${computerName}_raw"
+$resultPath = "C:\Window_${computerName}_result"
+
+# 기존 폴더 및 파일 제거 및 새 폴더 생성
+Remove-Item -Path $rawPath, $resultPath -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawPath, $resultPath -ItemType Directory | Out-Null
+
+# 보안 정책, 시스템 정보 등 수집
+secedit /export /cfg "$rawPath\Local_Security_Policy.txt"
+New-Item -Path "$rawPath\compare.txt" -ItemType File -Force
+Get-Location > "$rawPath\install_path.txt"
+systeminfo > "$rawPath\systeminfo.txt"
+
+# IIS 설정 정보 수집
+$applicationHostConfig = Get-Content "$env:WINDIR\System32\inetsrv\config\applicationHost.Config"
+$applicationHostConfig > "$rawPath\iis_setting.txt"
+
+# 사용자 계정 정보 수집 및 분석
+$users = (net user | Select-String -Pattern "\w+" -AllMatches).Matches.Value
+foreach ($user in $users) {
+    $userInfo = net user $user
+    $isActive = $userInfo -match "계정 활성 상태\s+.*Yes"
+    if ($isActive) {
+        $json.진단결과 = "취약"
+        $json.현황 += "활성화된 계정: $user"
+        "$userInfo" | Out-File -FilePath "$rawPath\user_$user.txt"
+    }
+}
+
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultPath\W-03.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+
+Write-Host "스크립트 실행 완료"

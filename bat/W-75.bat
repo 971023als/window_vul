@@ -1,111 +1,50 @@
-rem windows server script edit 2020
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo ������ ������ ��û�մϴ�...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# 진단 결과를 위한 JSON 객체 초기화
+$json = @{
+    Category = "보안 관리"
+    Code = "W-75"
+    RiskLevel = "높음"
+    DiagnosticItem = "로그인 경고 메시지 설정"
+    DiagnosticResult = "양호"  # 기본값으로 '양호' 가정
+    Status = @()
+    Countermeasure = "로그인 경고 메시지 설정 조정"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------Setting---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS Setting-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------end-------------------------------------------
-echo ------------------------------------------W-75------------------------------------------
-FOR /F "tokens=3" %%k IN ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" ^| FIND /I "LegalNoticeCaption"') DO echo %%k >> C:\Window_%COMPUTERNAME%_raw\W-75.txt
-FOR /F "tokens=3" %%j IN ('reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" ^| FIND /I "LegalNoticeText"') DO echo %%j >> C:\Window_%COMPUTERNAME%_raw\W-75.txt
-FOR /F "tokens=3" %%y IN ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\policies\system" ^| FIND /I "legalnoticecaption"') DO echo %%y >> C:\Window_%COMPUTERNAME%_raw\W-75.txt
-FOR /F "tokens=3" %%b IN ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\policies\system" ^| FIND /I "legalnoticetext"') DO echo %%b >> C:\Window_%COMPUTERNAME%_raw\W-75.txt
-ECHO n | COMP C:\Window_%COMPUTERNAME%_raw\compare.txt C:\Window_%COMPUTERNAME%_raw\W-75.txt
-IF NOT ERRORLEVEL 1 (
-	REM ���
-	echo W-75,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �α��� ��� �޽������� �� ������ �����Ǿ� �ִ� ��� ��ȣ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ��Ȳ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �α��� ��� �޽������� �� ������ �����Ǿ� ���� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo Winlogon_LegalNotice ���� ��� �޽��� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | FIND /I "LegalNoticeCaption" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | FIND /I "LegalNoticeText" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo system_LegalNotice ���� ��� �޽��� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\policies\system" | FIND /I "legalnoticecaption" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\policies\system" | FIND /I "legalnoticetext" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �α��� ��� �޽������� �� ������ �����Ǿ� ���� �����Ƿ� ����� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE (
-	REM ��ȣ
-	echo W-75,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �α��� ��� �޽������� �� ������ �����Ǿ� �ִ� ��� ��ȣ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ��Ȳ >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �α��� ��� �޽������� �� ������ �����Ǿ� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo Winlogon_LegalNotice ���� ��� �޽��� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | FIND /I "LegalNoticeCaption" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | FIND /I "LegalNoticeText" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo system_LegalNotice ���� ��� �޽��� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\policies\system" | FIND /I "legalnoticecaption" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\policies\system" | FIND /I "legalnoticetext" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �� ���� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo �α��� ��� �޽������� �� ������ �����Ǿ� �����Ƿ� ��ȣ�� >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------end------------------------------------------
-echo ------------------------------------------결과 요약------------------------------------------
-:: 결과 요약 보고
-type C:\Window_%COMPUTERNAME%_result\W-Window-* >> C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
+# 관리자 권한이 없는 경우 관리자 권한 요청
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb", "RunAs"
+    Exit
+}
 
-:: 이메일로 결과 요약 보내기 (가상의 명령어, 실제 환경에 맞게 수정 필요)
-:: sendmail -to admin@example.com -subject "Security Audit Summary" -body C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
+# 환경 및 디렉토리 설정
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
 
-echo 결과가 C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt 에 저장되었습니다.
+# 기존 데이터 삭제 및 새 감사 데이터를 위한 디렉토리 생성
+Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
 
-:: 정리 작업
-echo 정리 작업을 수행합니다...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+# 로컬 보안 정책을 파일로 내보내기
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
 
-echo 스크립트를 종료합니다.
-exit
+# 로그인 법적 고지 설정 확인
+$winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+$LegalNoticeCaption = (Get-ItemProperty -Path $winlogonPath -Name "LegalNoticeCaption" -ErrorAction SilentlyContinue).LegalNoticeCaption
+$LegalNoticeText = (Get-ItemProperty -Path $winlogonPath -Name "LegalNoticeText" -ErrorAction SilentlyContinue).LegalNoticeText
+
+if ([string]::IsNullOrEmpty($LegalNoticeCaption) -and [string]::IsNullOrEmpty($LegalNoticeText)) {
+    $json.Status += "로그인 경고 메시지가 설정되지 않았습니다. 이는 보안에 도움이 됩니다."
+} else {
+    $json.DiagnosticResult = "취약"
+    $json.Status += "로그인 경고 메시지가 설정되어 있습니다. 내용에 따라 보안에 문제가 될 수 있습니다."
+}
+
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultDir\W-75.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+
+# 정리
+Remove-Item "$rawDir\*" -Force
+
+Write-Host "스크립트가 성공적으로 완료되었습니다."

@@ -1,89 +1,60 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한을 요청합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
+# JSON 객체 초기화
+$json = @{
+    분류 = "계정관리"
+    코드 = "W-11"
+    위험도 = "상"
+    진단 항목 = "패스워드 최대 사용 기간"
+    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
+    현황 = @()
+    대응방안 = "패스워드 최대 사용 기간"
+}
 
-:UACPrompt
-    echo Set UAC = CreateObject("Shell.Application") > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-    del "getadmin.vbs"
-    exit /B
+# 관리자 권한으로 실행 중인지 확인
+If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell.exe -ArgumentList "-File", "`"$PSCommandPath`"", "-NoProfile", "-ExecutionPolicy Bypass" -Verb RunAs
+    Exit
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정 초기화---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt 0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS 설정 분석-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a"
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-    echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------설정 끝-------------------------------------------
+# 콘솔 환경 설정
+chcp 437 | Out-Null
+$host.UI.RawUI.BackgroundColor = "DarkGreen"
+Clear-Host
 
-echo ------------------------------------------W-11 사용자 암호 분석------------------------------------------
-cd C:\Window_%COMPUTERNAME%_raw\
-FOR /F "tokens=1" %%j IN ('type C:\Window_%COMPUTERNAME%_raw\user.txt') DO (
-    net user %%j | find "계정 활성" | findstr "예" >nul
-    IF NOT ERRORLEVEL 1 (
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_pw.txt
-        net user %%j | find "사용자 이름" >> C:\Window_%COMPUTERNAME%_raw\user_pw.txt
-        net user %%j | find "암호 마지막 설정" >> C:\Window_%COMPUTERNAME%_raw\user_pw.txt
-        echo ----------------------------------------------------  >> C:\Window_%COMPUTERNAME%_raw\user_pw.txt
-    ) ELSE (
-        ECHO 비활성 계정은 건너뜁니다.
-    )
-)
+# 변수 설정
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Window_${computerName}_raw"
+$resultDir = "C:\Window_${computerName}_result"
 
-FOR /F "tokens=3" %%Y in ('type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt ^| find "최대암호사용기간" ^| findstr -v "Parameters"') DO set MaximumPasswordAge=%%Y
-IF "%MaximumPasswordAge%" LSS "91" (
-    echo W-11,O,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 최대 암호 사용 기간 정책이 준수됩니다, 90일 미만으로 설정됨. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | find "최대암호사용기간" | findstr -v "Parameters" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 암호 마지막 설정 날짜를 검토하세요: >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\user_pw.txt >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE (
-    echo W-11,X,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 최대 암호 사용 기간 정책이 비준수입니다, 90일 이상으로 설정됨. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | find "최대암호사용기간" | findstr -v "Parameters" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo 암호 마지막 설정 날짜를 검토하세요: >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    type C:\Window_%COMPUTERNAME%_raw\user_pw.txt >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------분석 끝-------------------------------------------
+# 디렉터리 초기화
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
 
-echo --------------------------------------W-11 데이터 캡처-------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-type C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt | Find /I "최대암호사용기간" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
-echo -------------------------------------------------------------------------------->> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-rawdata.txt
+# 기본 정보 수집
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
+New-Item -Path "$rawDir\compare.txt" -ItemType File -Force | Out-Null
+(Get-Location).Path > "$rawDir\install_path.txt"
+systeminfo > "$rawDir\systeminfo.txt"
+
+# IIS 설정 파일 읽기
+$applicationHostConfig = Get-Content -Path "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config"
+$applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
+
+# 최대암호사용기간 분석
+$localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
+$maximumPasswordAge = ($localSecurityPolicy | Where-Object { $_ -match "MaximumPasswordAge\s*=\s*(\d+)" }).Matches.Groups[1].Value
+
+# 보안 정책 분석 후 JSON 객체 업데이트
+if ($maximumPasswordAge) {
+    if ([int]$maximumPasswordAge -le 90) {
+        $json.현황 += "최대 암호 사용 기간 정책이 준수됩니다. ${maximumPasswordAge}일로 설정됨."
+    } else {
+        $json.진단결과 = "취약"
+        $json.현황 += "최대 암호 사용 기간 정책이 준수되지 않습니다. ${maximumPasswordAge}일로 설정됨."
+    }
+} else {
+    $json.현황 += "최대암호사용기간 정책 정보를 찾을 수 없습니다."
+}
+
+# JSON 결과를 파일로 저장
+$jsonFilePath = "$resultDir\W-11.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

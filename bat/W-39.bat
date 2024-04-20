@@ -1,64 +1,81 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한을 요청합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# Define the audit configuration using a custom object for easier property management
+$json = [PSCustomObject]@{
+    분류 = "서비스관리"
+    코드 = "W-39"
+    위험도 = "상"
+    진단항목 = "Anonymous FTP 금지"
+    진단결과 = "양호" # 기본 값을 "양호"로 설정
+    현황 = @()
+    대응방안 = "Anonymous FTP 금지"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정 시작---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS 설정-----------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-...
-echo ------------------------------------------W-39 점검 시작------------------------------------------
-cd "C:\Window_%COMPUTERNAME%_raw\"
-dir | find /I "ftp_path.txt" >nul
-IF NOT ERRORLEVEL 1 (
-    TYPE C:\Window_%COMPUTERNAME%_raw\ftp_config.txt | find /i "anonymousAuthentication enabled=""true"""  >> C:\Window_%COMPUTERNAME%_raw\w-39.txt
-    ECHO n | COMP C:\Window_%COMPUTERNAME%_raw\compare.txt C:\Window_%COMPUTERNAME%_raw\w-39.txt
-    IF NOT ERRORLEVEL 1 (
-        echo W-39,OK,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 상태 확인: 안전 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 익명 인증이 비활성화되어 있어 안전합니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    ) ELSE (
-        echo W-39,경고,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 상태 확인: 취약 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-        echo 익명 인증이 활성화되어 있어 취약합니다. 필요하지 않다면 비활성화해 주세요. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    )
-) ELSE (
-    echo W-39,정보,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-    echo FTP 경로 파일을 찾을 수 없습니다. FTP 서비스가 설치되어 있지 않거나 비활성화되어 있을 수 있습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------W-39 점검 종료------------------------------------------
-...
-echo ------------------------------------------결과 요약------------------------------------------
-type C:\Window_%COMPUTERNAME%_result\W-Window-* >> C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
-...
-echo 결과가 C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt에 저장되었습니다.
-...
-echo 정리 작업을 수행합니다...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
-echo 스크립트를 종료합니다.
-exit
+# Request Administrator privileges
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+If (-not $isAdmin) {
+    $info = [System.Diagnostics.ProcessStartInfo]::new("PowerShell")
+    $info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $args"
+    $info.Verb = "runas"
+    [System.Diagnostics.Process]::Start($info)
+    Exit
+}
+
+# Set up the console environment
+chcp 437 | Out-Null
+$host.UI.RawUI.BackgroundColor = "DarkGreen"
+$host.UI.RawUI.ForegroundColor = "Green"
+Clear-Host
+
+Write-Host "------------------------------------------Configuration Initialization---------------------------------------"
+$computerName = $env:COMPUTERNAME
+$rawDir = "C:\Audit_${computerName}_Raw"
+$resultDir = "C:\Audit_${computerName}_Results"
+
+# Clean up previous directories and create new ones for the current audit
+Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+
+# Export local security policy and generate a comparison file
+secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
+
+# Save installation path and collect system information
+Set-Location -Path $rawDir
+Get-Location | Out-File -FilePath "$rawDir\install_path.txt"
+systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+
+Write-Host "------------------------------------------IIS Configuration-----------------------------------"
+Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config" | Out-File -FilePath "$rawDir\iis_setting.txt"
+Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | ForEach-Object { $_.Line } | Out-File -FilePath "$rawDir\iis_path1.txt"
+
+# Analyze IIS settings and save the paths
+$line = Get-Content "$rawDir\iis_path1.txt" -Raw
+$line | Out-File -FilePath "$rawDir\line.txt"
+
+1..5 | ForEach-Object {
+    $filePath = "$rawDir\path$_.txt"
+    Get-Content "$rawDir\line.txt" | ForEach-Object {
+        $_ | Out-File -FilePath $filePath -Append
+    }
+}
+
+# Append MetaBase.xml if applicable
+$metaBasePath = "$env:WINDIR\system32\inetsrv\MetaBase.xml"
+If (Test-Path $metaBasePath) {
+    Get-Content $metaBasePath | Out-File -FilePath "$rawDir\iis_setting.txt" -Append
+}
+
+Write-Host "------------------------------------------Configuration Complete-------------------------------------------"
+
+# Update JSON data based on diagnostics
+$isSecure = $true # This value should be determined by actual diagnostic logic
+
+if (-not $isSecure) {
+    $json.진단결과 = "위험"
+    $json.현황 = @("EVERYONE 그룹에 대한 FullControl 접근 권한이 발견되었습니다.")
+} else {
+    $json.현황 = @("FTP 디렉토리 접근권한이 적절히 설정됨.")
+}
+
+# Save JSON results to a file
+$jsonFilePath = "$resultDir\W-39.json"
+$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath

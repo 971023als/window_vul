@@ -1,93 +1,66 @@
-@echo off
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo 관리자 권한이 필요합니다...
-    goto UACPrompt
-) else ( goto gotAdmin )
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%getadmin.vbs"
-    set params = %*:"=""
-    echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "getadmin.vbs"
-    "getadmin.vbs"
-	del "getadmin.vbs"
-    exit /B
+# Define the audit configuration
+$auditConfig = @{
+    Category    = "Account Management"
+    Code        = "W-37"
+    RiskLevel   = "High"
+    AuditItem   = "Use of decryptable encryption for password storage"
+    AuditResult = "Good"  # Default value
+    Status      = @()
+    Recommendation = "Use of non-decryptable encryption for password storage"
+}
 
-:gotAdmin
-chcp 437
-color 02
-setlocal enabledelayedexpansion
-echo ------------------------------------------설정 시작---------------------------------------
-rd /S /Q C:\Window_%COMPUTERNAME%_raw
-rd /S /Q C:\Window_%COMPUTERNAME%_result
-mkdir C:\Window_%COMPUTERNAME%_raw
-mkdir C:\Window_%COMPUTERNAME%_result
-del C:\Window_%COMPUTERNAME%_result\W-Window-*.txt
-secedit /EXPORT /CFG C:\Window_%COMPUTERNAME%_raw\Local_Security_Policy.txt
-fsutil file createnew C:\Window_%COMPUTERNAME%_raw\compare.txt  0
-cd >> C:\Window_%COMPUTERNAME%_raw\install_path.txt
-for /f "tokens=2 delims=:" %%y in ('type C:\Window_%COMPUTERNAME%_raw\install_path.txt') do set install_path=c:%%y 
-systeminfo >> C:\Window_%COMPUTERNAME%_raw\systeminfo.txt
-echo ------------------------------------------IIS 설정---------------------------------------
-type %WinDir%\System32\Inetsrv\Config\applicationHost.Config >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-type C:\Window_%COMPUTERNAME%_raw\iis_setting.txt | findstr "physicalPath bindingInformation" >> C:\Window_%COMPUTERNAME%_raw\iis_path1.txt
-set "line="
-for /F "delims=" %%a in ('type C:\Window_%COMPUTERNAME%_raw\iis_path1.txt') do (
-set "line=!line!%%a" 
-)
-echo !line!>>C:\Window_%COMPUTERNAME%_raw\line.txt
-for /F "tokens=1 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path1.txt
-)
-for /F "tokens=2 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path2.txt
-)
-for /F "tokens=3 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path3.txt
-)
-for /F "tokens=4 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path4.txt
-)
-for /F "tokens=5 delims=*" %%a in ('type C:\Window_%COMPUTERNAME%_raw\line.txt') do (
-	echo %%a >> C:\Window_%COMPUTERNAME%_raw\path5.txt
-)
-type C:\WINDOWS\system32\inetsrv\MetaBase.xml >> C:\Window_%COMPUTERNAME%_raw\iis_setting.txt
-echo ------------------------------------------설정 종료---------------------------------------
-echo ------------------------------------------W-37 점검 시작---------------------------------------
-net start | find /I "Microsoft FTP Service" >nul
-IF NOT ERRORLEVEL 1 (
-	echo W-37,경고,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 취약점 발견 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo Microsoft FTP Service가 실행 중인 것이 확인되었습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 조치 방안 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo FTP 서비스가 활성화 되어있으므로, 필요하지 않은 경우 비활성화 해주세요. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	net start | find /I "Microsoft FTP Service" >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 조치 완료 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo FTP 서비스가 활성화 되어있기 때문에 취약점이 존재합니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-) ELSE (
-	echo W-37,안전,^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 취약점 미발견 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo Microsoft FTP Service가 실행 중이지 않습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 조치 방안 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo FTP 서비스가 비활성화 되어있습니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo 조치 완료 >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo FTP 서비스가 비활성화 되어있기 때문에 안전합니다. >> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-	echo ^|>> C:\Window_%COMPUTERNAME%_result\W-Window-%COMPUTERNAME%-result.txt
-)
-echo -------------------------------------------점검 종료------------------------------------------
-echo ------------------------------------------결과 요약------------------------------------------
-:: 결과 요약 보고
-type C:\Window_%COMPUTERNAME%_result\W-Window-* >> C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
+# Request Administrator privileges
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
+    Exit
+}
 
-:: 이메일로 결과 요약 보내기 (가상의 명령어, 실제 환경에 맞게 수정 필요)
-:: sendmail -to admin@example.com -subject "Security Audit Summary" -body C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt
+# 콘솔 환경 설정
+function Initialize-Environment {
+    chcp 437 | Out-Null
+    $host.UI.RawUI.BackgroundColor = "DarkGreen"
+    $host.UI.RawUI.ForegroundColor = "Green"
+    Clear-Host
+    Write-Host "환경을 초기화 중입니다..."
+}
 
-echo 결과가 C:\Window_%COMPUTERNAME%_result\security_audit_summary.txt 에 저장되었습니다.
+# 디렉터리 설정 및 정리
+function Setup-Directories {
+    $global:computerName = $env:COMPUTERNAME
+    $global:rawDir = "C:\Audit_${computerName}_Raw"
+    $global:resultDir = "C:\Audit_${computerName}_Results"
 
-:: 정리 작업
-echo 정리 작업을 수행합니다...
-del C:\Window_%COMPUTERNAME%_raw\*.txt
-del C:\Window_%COMPUTERNAME%_raw\*.vbs
+    Remove-Item $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item $rawDir, $resultDir -ItemType Directory | Out-Null
+    Write-Host "디렉터리 설정 완료."
+}
 
-echo 스크립트를 종료합니다.
-exit
+# 로컬 보안 정책 내보내기 및 시스템 정보 수집
+function Export-PolicyAndCollect-Info {
+    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
+    systeminfo | Out-File "$rawDir\SystemInfo.txt"
+    Write-Host "로컬 보안 정책을 내보내고 시스템 정보를 수집했습니다."
+}
+
+# Microsoft FTP 서비스 감사
+function Audit-FTPServices {
+    Write-Host "Microsoft FTP 서비스를 감사 중입니다..."
+    $ftpService = Get-Service -Name "MSFTPSVC" -ErrorAction SilentlyContinue
+    if ($ftpService -and $ftpService.Status -eq "Running") {
+        "W-37, 경고, | Microsoft FTP 서비스가 실행 중이며, 이는 취약점이 될 수 있습니다." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
+        Write-Host "경고: Microsoft FTP 서비스가 실행 중입니다. 필요하지 않은 경우 비활성화를 고려하세요."
+    } else {
+        "W-37, 안전, | Microsoft FTP 서비스가 실행되지 않고 있습니다. 조치가 필요 없습니다." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
+        Write-Host "안전: Microsoft FTP 서비스가 실행되지 않고 있습니다."
+    }
+}
+
+# 주 실행 흐름
+Initialize-Environment
+Setup-Directories
+Export-PolicyAndCollect-Info
+Audit-FTPServices
+
+# JSON 결과 파일 저장
+$jsonFilePath = "$resultDir\W-37.json"
+$auditConfig | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
