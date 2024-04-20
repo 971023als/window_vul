@@ -1,65 +1,44 @@
-$json = @{
-        "분류": "계정관리",
-        "코드": "W-14",
-        "위험도": "상",
-        "진단 항목": "로컬 로그온 허용",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "로컬 로그온 허용"
-    }
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
+:: 관리자 권한으로 실행 확인
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
     exit
-}
+)
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.ForegroundColor = "Green"
+:: 기본 설정
+set "computerName=%COMPUTERNAME%"
+set "rawPath=C:\Window_%computerName%_raw"
+set "resultPath=C:\Window_%computerName%_result"
 
-# 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-New-Item -Path "$rawDir\compare.txt" -ItemType File | Out-Null
-Set-Location -Path $rawDir
-(Get-Location).Path | Out-File -FilePath "install_path.txt"
-systeminfo | Out-File -FilePath "systeminfo.txt"
+:: 디렉토리 초기화 및 생성
+if exist "%rawPath%" rmdir /s /q "%rawPath%"
+if exist "%resultPath%" rmdir /s /q "%resultPath%"
+mkdir "%rawPath%"
+mkdir "%resultPath%"
 
-# IIS 설정 분석
-Copy-Item -Path "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config" -Destination "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File -FilePath "$rawDir\iis_path1.txt"
+:: 보안 정책 파일 내보내기
+secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
 
-# 보안 정책 감사 - SeInteractiveLogonRight
-$securityPolicy = Get-Content -Path "$rawDir\Local_Security_Policy.txt"
-$interactiveLogonRight = Select-String -Path "$rawDir\Local_Security_Policy.txt" -Pattern "SeInteractiveLogonRight"
+:: 로컬 로그온 허용 정책 설정 검사
+set "진단결과=양호"
+set "현황="
 
-"------------------------------------------W-14 Security Policy Audit------------------------------------------" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-"Checking policy" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-"The interactive logon right policy check for Administrators, IUSR accounts" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-"Policy details" | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-$interactiveLogonRight | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
-"Conclusion: If necessary, adjust the policy to ensure compliance." | Out-File "$resultDir\W-Window-${computerName}-result.txt" -Append
+for /f "delims=" %%a in ('findstr "SeInteractiveLogonRight" "%rawPath%\Local_Security_Policy.txt"') do (
+    set "interactiveLogonRight=%%a"
+    if not "!interactiveLogonRight!"=="" (
+        set "현황=로컬 로그온 허용 정책이 관리자와 IUSR 계정에 대해 구성되어 있습니다."
+    ) else (
+        set "진단결과=취약"
+        set "현황=로컬 로그온 허용 정책이 예상대로 구성되지 않아 잠재적 보안 위험을 초래합니다."
+    )
+)
 
-# 데이터 캡처
-$interactiveLogonRight | Out-File "$resultDir\W-Window-${computerName}-rawdata.txt" -Append
+:: 진단 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-14.csv"
+echo 계정관리,W-14,상,로컬 로그온 허용,!진단결과!,!현황!,로컬 로그온 허용 정책 조정 >> "%resultPath%\W-14.csv"
 
-# Updating the JSON object based on the "SeInteractiveLogonRight" policy analysis
-if ($interactiveLogonRight) {
-    $json.현황 += "The 'SeInteractiveLogonRight' policy is configured for Administrators, IUSR accounts."
-    $json.진단결과 = "양호" # Assuming the presence of the policy indicates compliance
-} else {
-    $json.진단결과 = "취약"
-    $json.현황 += "The 'SeInteractiveLogonRight' policy is not configured as expected, indicating a potential security risk."
-}
-
-# Including a generic conclusion in the JSON, can be adjusted based on specific criteria
-$json.결론 = "If necessary, adjust the policy to ensure compliance."
-
-# Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-14.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+:: 스크립트 실행 완료 메시지
+echo 스크립트 실행 완료
