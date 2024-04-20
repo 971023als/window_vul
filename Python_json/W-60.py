@@ -1,59 +1,69 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "로그관리"
-    코드 = "W-60"
-    위험도 = "상"
-    진단 항목 = "이벤트 로그 관리 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "이벤트 로그 관리 설정 조정"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
-    exit
-}
+def check_admin():
+    """Check if the script is run as an administrator."""
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
 
-# 환경 설정 및 디렉터리 초기화
-$computerName = $env:COMPUTERNAME
-$rawDirectory = "C:\Window_${computerName}_raw"
-$resultDirectory = "C:\Window_${computerName}_result"
+def setup_directories(computer_name):
+    """Create directories for storing raw data and results."""
+    raw_dir = fr"C:\Window_{computer_name}_raw"
+    result_dir = fr"C:\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
+def check_event_log_settings():
+    """Check the configuration of system event logs."""
+    inadequate_settings = False
+    results = []
+    log_keys = ["Application", "Security", "System"]
+    with winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE) as hkey:
+        for key in log_keys:
+            path = fr"SYSTEM\CurrentControlSet\Services\Eventlog\{key}"
+            try:
+                with winreg.OpenKey(hkey, path) as log_key:
+                    max_size, _ = winreg.QueryValueEx(log_key, "MaxSize")
+                    retention, _ = winreg.QueryValueEx(log_key, "Retention")
+                    if max_size < 10485760 or retention == 0:
+                        inadequate_settings = True
+                        results.append(f"MaxSize for {key}: {max_size}, Retention for {key}: {retention}")
+            except FileNotFoundError:
+                results.append(f"Event log settings for {key} not found.")
+    return inadequate_settings, results
 
-# 이벤트 로그 설정 검사
-$eventLogKeys = @("Application", "Security", "System")
-$inadequateSettings = $False
+def main():
+    if not check_admin():
+        print("이 스크립트는 관리자 권한으로 실행되어야 합니다.")
+        return
 
-foreach ($key in $eventLogKeys) {
-    $path = "HKLM:\SYSTEM\CurrentControlSet\Services\Eventlog\$key"
-    $maxSize = (Get-ItemProperty -Path $path -Name "MaxSize").MaxSize
-    $retention = (Get-ItemProperty -Path $path -Name "Retention").Retention
-    If ($maxSize -lt 10485760 -or $retention -eq 0) {
-        $inadequateSettings = $True
-        $json.현황 += "MaxSize for $key: $maxSize, Retention for $key: $retention"
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_directories(computer_name)
+
+    inadequate_settings, settings_results = check_event_log_settings()
+
+    results = {
+        "분류": "로그관리",
+        "코드": "W-60",
+        "위험도": "상",
+        "진단 항목": "이벤트 로그 관리 설정",
+        "진단 결과": "취약" if inadequate_settings else "양호",
+        "현황": settings_results if inadequate_settings else ["모든 이벤트 로그가 적절하게 설정되었습니다."],
+        "대응방안": "이벤트 로그 관리 설정 조정"
     }
-}
 
-If ($inadequateSettings) {
-    $json.진단 결과 = "취약"
-} else {
-    $json.현황 += "All event logs are adequately configured."
-}
+    # Save results to a JSON file
+    json_path = os.path.join(result_dir, f"W-60_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as file:
+        json.dump(results, file, ensure_ascii=False, indent=4)
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDirectory\W-60_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# 결과 요약 및 저장
-Get-Content -Path "$resultDirectory\W-60_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
-
-Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
-
-# 정리 작업
-Remove-Item -Path "$rawDirectory\*" -Force
-
-Write-Host "Script has completed."
+if __name__ == "__main__":
+    main()
