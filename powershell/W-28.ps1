@@ -1,13 +1,14 @@
 # 변수 초기화
 $json = @{
-    Category = "계정 관리"
-    Code = "W-28"
-    RiskLevel = "높음"
-    DiagnosticItem = "비밀번호 저장에 복호화 가능한 암호화 사용하지 않기"
-    DiagnosticResult = "양호"  # 기본 상태를 '양호'로 가정
-    CurrentStatus = @()
-    Recommendation = "비밀번호 저장에 복호화 가능한 암호화 사용을 피하세요"
+  "분류": "계정 관리",
+  "코드": "W-28",
+  "위험도": "높음",
+  "진단_항목": "비밀번호 저장에 복호화 가능한 암호화 사용하지 않기",
+  "진단_결과": "양호"  // 기본 상태를 '양호'로 설정,
+  "현황": [],
+  "대응방안": "비밀번호 저장에 복호화 가능한 암호화 사용을 피하세요"
 }
+
 
 # 관리자 권한 요청
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
