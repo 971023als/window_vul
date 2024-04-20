@@ -1,70 +1,88 @@
-# PowerShell Script for NetBIOS Configuration Audit
+import json
+import os
+import subprocess
+from pathlib import Path
 
 # Define the audit parameters
-$auditParams = @{
-    Category = "Account Management"
-    Code = "W-36"
-    RiskLevel = "High"
-    AuditItem = "Use of decryptable encryption for password storage"
-    AuditResult = "Good"  # Assuming "Good" as the default value
-    Status = @()
-    Recommendation = "Use of non-decryptable encryption for password storage"
+audit_params = {
+    "분류": "계정 관리",
+    "코드": "W-36",
+    "위험도": "높음",
+    "진단 항목": "비밀번호 저장을 위한 복호화 가능한 암호화 사용",
+    "진단 결과": "양호",  # '양호'로 기본 가정
+    "현황": [],
+    "대응방안": "비밀번호 저장을 위한 비복호화 가능한 암호화 사용"
 }
 
 # Ensure the script runs with Administrator privileges
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    exit
-}
+def check_admin_privileges():
+    try:
+        # Check for admin rights and relaunch if needed
+        if os.getuid() != 0:
+            subprocess.check_call(['sudo', 'python3'] + sys.argv)
+    except AttributeError:
+        # Windows handling for admin rights, assuming this is run in an elevated command prompt
+        import ctypes
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            subprocess.run(['powershell', '-Command', f"Start-Process python {' '.join(sys.argv)} -Verb RunAs"], check=True)
+            exit()
 
-# Configure the console environment
-function Setup-Console {
-    chcp 437 | Out-Null
-    $host.UI.RawUI.BackgroundColor = "DarkGreen"
-    $host.UI.RawUI.ForegroundColor = "Green"
-    Clear-Host
-    Write-Host "Initializing audit environment..."
-}
+# Setup console environment
+def setup_console():
+    print("Initializing audit environment...")
 
 # Setup audit environment
-function Initialize-AuditEnvironment {
-    $global:computerName = $env:COMPUTERNAME
-    $global:rawDir = "C:\Audit_${computerName}_Raw"
-    $global:resultDir = "C:\Audit_${computerName}_Results"
+def initialize_audit_environment():
+    computer_name = os.getenv('COMPUTERNAME', 'UNKNOWN_PC')
+    raw_dir = Path(f"C:/Audit_{computer_name}_Raw")
+    result_dir = Path(f"C:/Audit_{computer_name}_Results")
 
     # Clean up previous data and set up directories for current audit
-    Remove-Item $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item $rawDir, $resultDir -ItemType Directory | Out-Null
-    secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-    systeminfo | Out-File "$rawDir\SystemInfo.txt"
-}
+    for directory in [raw_dir, result_dir]:
+        if directory.exists():
+            for item in directory.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+        else:
+            directory.mkdir(parents=True, exist_ok=True)
+
+    # Mock to simulate 'secedit /export /cfg'
+    (raw_dir / 'Local_Security_Policy.txt').write_text('Simulated security policy data')
+    (raw_dir / 'SystemInfo.txt').write_text('Simulated system info')
+
+    return raw_dir, result_dir
 
 # Perform NetBIOS Configuration Check
-function Check-NetBIOSConfiguration {
-    Write-Host "Checking NetBIOS Configuration..."
-    $netBIOSConfig = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.TcpipNetbiosOptions -eq 2 }
+def check_netbios_configuration():
+    print("Checking NetBIOS Configuration...")
+    # Simulating a system call to check NetBIOS configuration
+    try:
+        netbios_config = subprocess.check_output("wmic nicconfig where TcpipNetbiosOptions=2 get description", shell=True)
+        if netbios_config:
+            print("NetBIOS over TCP/IP is disabled - configuration is secure.")
+            return "NetBIOS over TCP/IP is disabled, aligning with secure configuration recommendations."
+        else:
+            print("Attention Needed: Review NetBIOS over TCP/IP settings.")
+            return "Review NetBIOS over TCP/IP settings for potential security improvements."
+    except subprocess.CalledProcessError:
+        return "Failed to retrieve NetBIOS configuration."
 
-    if ($netBIOSConfig) {
-        "W-36, Good, | NetBIOS over TCP/IP is disabled, aligning with secure configuration recommendations." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
-        Write-Host "NetBIOS over TCP/IP is disabled - configuration is secure."
-    } else {
-        "W-36, Attention Needed, | Review NetBIOS over TCP/IP settings for potential security improvements." | Out-File "$resultDir\W-Window-${computerName}-Result.txt"
-        Write-Host "Attention Needed: Review NetBIOS over TCP/IP settings."
-    }
-}
+# Main script logic
+def main():
+    check_admin_privileges()
+    setup_console()
+    raw_dir, result_dir = initialize_audit_environment()
+    netbios_status = check_netbios_configuration()
+    audit_params["현황"].append(netbios_status)
 
-# Summarize audit findings and perform cleanup
-function Finalize-Audit {
-    Write-Host "Audit Completed. Review the results in $resultDir."
-    Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
-}
+    # Save the JSON results to a file
+    json_file_path = result_dir / 'W-36.json'
+    with open(json_file_path, 'w', encoding='utf-8') as file:
+        json.dump(audit_params, file, ensure_ascii=False, indent=4)
 
-# Main
-Setup-Console
-Initialize-AuditEnvironment
-Check-NetBIOSConfiguration
-Finalize-Audit
+    print("Audit completed. Review the results in", result_dir)
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-36.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+if __name__ == "__main__":
+    main()
