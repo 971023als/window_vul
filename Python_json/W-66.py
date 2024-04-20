@@ -1,48 +1,65 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-66"
-    위험도 = "상"
-    진단 항목 = "원격 시스템에서 강제로 시스템 종료"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "원격 시스템에서 강제로 시스템 종료 정책을 적절히 설정"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSCommandPath" -Verb RunAs
-    exit
-}
+def is_admin():
+    """Check if the script is run as administrator."""
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
 
-# 환경 설정 및 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDir, $resultDir | Out-Null
+def setup_directories(computer_name):
+    """Prepare directory for storing results."""
+    result_dir = fr"C:\Window_{computer_name}_result"
+    raw_dir = fr"C:\Window_{computer_name}_raw"
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir, exist_ok=True)
+    if not os.path.exists(raw_dir):
+        os.makedirs(raw_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-# "원격 시스템 종료" 권한 검사
-$securityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
-$remoteShutdownPrivilege = $securityPolicy | Where-Object {$_ -match "SeRemoteShutdownPrivilege"}
+def check_remote_shutdown_privilege(raw_dir):
+    """Check the remote shutdown privilege settings from the security policy."""
+    try:
+        policy_path = os.path.join(raw_dir, "Local_Security_Policy.txt")
+        with open(policy_path, 'r', encoding='utf-16') as file:
+            security_policies = file.read()
+        if "SeRemoteShutdownPrivilege" in security_policies:
+            if "*S-1-5-32-544" in security_policies:
+                return True, "원격에서 시스템 종료 권한이 Administrators 그룹에만 부여되어 있습니다."
+        return False, "원격에서 시스템 종료 권한이 안전하게 설정되어 있습니다."
+    except FileNotFoundError:
+        return None, "보안 정책 파일을 찾을 수 없습니다."
 
-if ($remoteShutdownPrivilege -match ",\*S-1-5-32-544" -or $remoteShutdownPrivilege -match "\*S-1-5-32-544,") {
-    $json.진단 결과 = "취약"
-    $json.현황 += "원격에서 시스템 종료 권한이 Administrators 그룹에만 부여되어 있습니다."
-} else {
-    $json.현황 += "원격에서 시스템 종료 권한이 안전하게 설정되어 있습니다."
-}
+def main():
+    if not is_admin():
+        print("이 스크립트는 관리자 권한으로 실행되어야 합니다.")
+        return
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-66_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_directories(computer_name)
 
-# 결과 요약 및 출력
-Get-Content -Path "$resultDir\W-66_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
-Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
+    vulnerable, status_message = check_remote_shutdown_privilege(raw_dir)
 
-# 정리 작업 및 스크립트 종료 메시지
-Remove-Item "$rawDir\*" -Force
-Write-Host "스크립트를 종료합니다."
+    result = {
+        "분류": "보안관리",
+        "코드": "W-66",
+        "위험도": "상",
+        "진단 항목": "원격 시스템에서 강제로 시스템 종료",
+        "진단 결과": "취약" if vulnerable else "양호",
+        "현황": [status_message],
+        "대응방안": "원격 시스템에서 강제로 시스템 종료 정책을 적절히 설정"
+    }
+
+    # Save results to a JSON file
+    json_path = os.path.join(result_dir, f"W-66_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as file:
+        json.dump(result, file, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
+
+if __name__ == "__main__":
+    main()

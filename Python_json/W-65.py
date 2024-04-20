@@ -1,47 +1,62 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-65"
-    위험도 = "상"
-    진단 항목 = "로그온하지 않고 시스템 종료 허용"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "정책 조정을 통해 로그온하지 않고 시스템 종료를 허용하거나 차단"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
-$windowsPrincipal = New-Object Security.Principal.WindowsPrincipal($currentUser)
-if (-not $windowsPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSCommandPath" -Verb RunAs
-    exit
-}
+def is_admin():
+    """Check if the script is run as administrator."""
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
 
-# 환경 변수 설정 및 결과 디렉터리 생성
-$computerName = $env:COMPUTERNAME
-$resultDir = "C:\Window_${computerName}_result"
+def check_shutdown_without_logon():
+    """Check the registry setting for shutdown without logon."""
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System")
+        value, _ = winreg.QueryValueEx(key, "ShutdownWithoutLogon")
+        winreg.CloseKey(key)
+        return value
+    except FileNotFoundError:
+        return None
 
-if (Test-Path $resultDir) {
-    Remove-Item -Path $resultDir -Recurse
-}
-New-Item -ItemType Directory -Path $resultDir | Out-Null
+def setup_directories(computer_name):
+    """Prepare directory for storing results."""
+    result_dir = fr"C:\Window_{computer_name}_result"
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir, exist_ok=True)
+    return result_dir
 
-# "로그온 없이 시스템 종료" 정책 확인
-$shutdownWithoutLogon = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System").ShutdownWithoutLogon
+def main():
+    if not is_admin():
+        print("이 스크립트는 관리자 권한으로 실행되어야 합니다.")
+        return
 
-# 결과 기록 및 JSON 업데이트
-if ($shutdownWithoutLogon -eq 0) {
-    $json.진단 결과 = "취약"
-    $json.현황 += "취약: '로그온 없이 시스템을 종료할 수 있는 정책'이 비활성화되어 있습니다."
-} else {
-    $json.현황 += "안전: '로그온 없이 시스템을 종료할 수 있는 정책'이 활성화되어 있습니다."
-}
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    result_dir = setup_directories(computer_name)
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-65_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    shutdown_without_logon = check_shutdown_without_logon()
 
-# 결과 요약 보고 및 스크립트 종료 메시지
-Write-Host "결과가 $resultDir에 저장되었습니다."
-Write-Host "스크립트를 종료합니다."
+    result = {
+        "분류": "보안관리",
+        "코드": "W-65",
+        "위험도": "상",
+        "진단 항목": "로그온하지 않고 시스템 종료 허용",
+        "진단 결과": "양호" if shutdown_without_logon else "취약",
+        "현황": [
+            "안전: '로그온 없이 시스템을 종료할 수 있는 정책'이 활성화되어 있습니다." if shutdown_without_logon
+            else "취약: '로그온 없이 시스템을 종료할 수 있는 정책'이 비활성화되어 있습니다."
+        ],
+        "대응방안": "정책 조정을 통해 로그온하지 않고 시스템 종료를 허용하거나 차단"
+    }
+
+    # Save results to a JSON file
+    json_path = os.path.join(result_dir, f"W-65_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as file:
+        json.dump(result, file, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
+
+if __name__ == "__main__":
+    main()
