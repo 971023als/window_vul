@@ -1,46 +1,60 @@
-$json = @{
-    Category = "계정 관리"
-    Code = "W-29"
-    RiskLevel = "높음"
-    DiagnosticItem = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-    DiagnosticResult = "양호"  # 기본 상태를 '양호'로 가정
-    CurrentStatus = @()
-    Recommendation = "비밀번호 저장을 위한 복호화 가능한 암호화 사용을 피하세요"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+
+# JSON 객체 초기화
+diagnosis_result = {
+    "분류": "계정 관리",
+    "코드": "W-29",
+    "위험도": "높음",
+    "진단항목": "비밀번호 저장을 위한 복호화 가능한 암호화 사용",
+    "진단결과": "양호",  # 기본 상태를 '양호'로 가정
+    "현황": [],
+    "대응방안": "비밀번호 저장을 위한 복호화 가능한 암호화 사용을 피하세요"
 }
 
-# 관리자 권한 요청
-$currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-File `"$PSCommandPath`"" -Verb RunAs
-    exit
-}
+# 관리자 권한 확인 및 요청
+if not os.getuid() == 0:
+    print("관리자 권한이 필요합니다...")
+    subprocess.call(['sudo', 'python3'] + sys.argv)
+    sys.exit()
 
 # 환경 설정 및 디렉터리 구성
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
 
-# 로컬 보안 정책 내보내기
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-New-Item -Path "$rawDir\compare.txt" -ItemType File
+# 디렉터리 초기화
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
 
-# 시스템 정보 저장
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+# 로컬 보안 정책 내보내기 및 시스템 정보 저장
+subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
+(raw_dir / 'compare.txt').touch()
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
 
 # IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-(Get-Content "$rawDir\iis_path1.txt" -Raw) | Out-File "$rawDir\line.txt"
+application_host_config_path = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+content = application_host_config_path.read_text() if application_host_config_path.exists() else ""
+with open(raw_dir / 'iis_setting.txt', 'w') as file:
+    file.write(content)
+with open(raw_dir / 'iis_path1.txt', 'w') as file:
+    file.write(content)
 
 # 분석을 위한 경로 추출
-1..5 | ForEach-Object {
-    $pathNumber = $_
-    (Get-Content "$rawDir\line.txt" -Raw) -split '\*' | Select-Object -Index ($pathNumber - 1) | Out-File "$rawDir\path$pathNumber.txt"
-}
+line_contents = content.split('*')
+for i in range(5):
+    with open(raw_dir / f'path{i+1}.txt', 'w') as f:
+        f.write(line_contents[i] if i < len(line_contents) else "")
 
 # JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-29.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+json_file_path = result_dir / 'W-29.json'
+with open(json_file_path, 'w') as file:
+    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+
+print("스크립트 실행 완료")
