@@ -1,54 +1,44 @@
-$json = @{
-        "분류": "계정관리",
-        "코드": "W-15",
-        "위험도": "상",
-        "진단 항목": "익명 SID/이름 변환 허용",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "익명 SID/이름 변환 허용"
-    }
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    $currentScript = $MyInvocation.MyCommand.Definition
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $currentScript -Verb RunAs
-    Exit
-}
+:: 관리자 권한으로 실행 확인
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
+    exit
+)
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
+:: 기본 설정
+set "computerName=%COMPUTERNAME%"
+set "rawPath=C:\Window_%computerName%_raw"
+set "resultPath=C:\Window_%computerName%_result"
 
-# 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-mkdir $rawDir, $resultDir | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-fsutil file createnew "$rawDir\compare.txt" 0 | Out-Null
-$installPath = Get-Location
-$installPath.Path | Out-File "$rawDir\install_path.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+:: 디렉토리 초기화 및 생성
+if exist "%rawPath%" rmdir /s /q "%rawPath%"
+if exist "%resultPath%" rmdir /s /q "%resultPath%"
+mkdir "%rawPath%"
+mkdir "%resultPath%"
 
-# IIS 설정 분석
-$applicationHostConfig = Get-Content -Path "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+:: 보안 정책 파일 내보내기
+secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
 
-# LSA 익명 이름 조회 설정의 보안 정책 감사
-$securityPolicyContent = Get-Content "$rawDir\Local_Security_Policy.txt"
-$LSAAnonymousNameLookup = $securityPolicyContent | Where-Object { $_ -match "LSAAnonymousNameLookup" }
+:: 익명 SID/이름 변환 정책 설정 검사
+set "진단결과=양호"
+set "현황="
 
-# Update the JSON object based on the "LSAAnonymousNameLookup" policy analysis
-if ($LSAAnonymousNameLookup -match "0") {
-    $json.현황 += "준수 상태 감지됨: LSA 익명 이름 조회가 올바르게 비활성화되어 있습니다."
-    $json.진단결과 = "양호"
-} else {
-    $json.진단결과 = "취약"
-    $json.현황 += "비준수 상태 감지됨: LSA 익명 이름 조회가 활성화되어 있습니다."
-}
+for /f "tokens=2 delims== eol= " %%a in ('findstr /R "LSAAnonymousNameLookup = [0-9]*" "%rawPath%\Local_Security_Policy.txt"') do (
+    set "LSAAnonymousNameLookup=%%a"
+    if "!LSAAnonymousNameLookup!"=="0" (
+        set "현황=준수 상태 감지됨: LSA 익명 이름 조회가 올바르게 비활성화되어 있습니다."
+    ) else (
+        set "진단결과=취약"
+        set "현황=비준수 상태 감지됨: LSA 익명 이름 조회가 활성화되어 있습니다."
+    )
+)
 
-# Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-15.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+:: 진단 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-15.csv"
+echo 계정관리,W-15,상,익명 SID/이름 변환 허용,!진단결과!,!현황!,익명 SID/이름 변환 허용 >> "%resultPath%\W-15.csv"
+
+:: 스크립트 실행 완료 메시지
+echo 스크립트 실행 완료
