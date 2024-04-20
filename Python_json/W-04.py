@@ -1,56 +1,68 @@
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+
 # JSON 객체 초기화
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-04"
-    위험도 = "상"
-    진단항목 = "계정 잠금 임계값 설정"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "계정 잠금 임계값 설정"
+diagnosis_result = {
+    "분류": "계정관리",
+    "코드": "W-04",
+    "위험도": "상",
+    "진단항목": "계정 잠금 임계값 설정",
+    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "현황": [],
+    "대응방안": "계정 잠금 임계값 설정"
 }
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "관리자 권한이 필요합니다..."
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-    Exit
-}
+# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
+if not os.getuid() == 0:
+    print("관리자 권한이 필요합니다...")
+    subprocess.call(['sudo', 'python3'] + sys.argv)
+    sys.exit()
 
 # 초기 환경 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+computer_name = os.environ['COMPUTERNAME']
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
+
+# 기존 폴더 및 파일 제거 및 새 폴더 생성
+shutil.rmtree(raw_dir, ignore_errors=True)
+shutil.rmtree(result_dir, ignore_errors=True)
+raw_dir.mkdir(parents=True, exist_ok=True)
+result_dir.mkdir(parents=True, exist_ok=True)
 
 # 보안 정책, 시스템 정보 등 수집
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$securityConfig = "$rawDir\Local_Security_Policy.txt"
-$securityPolicy = secedit /export /areas SECURITYPOLICY /cfg "$securityConfig"
+subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
+security_config = raw_dir / "Local_Security_Policy.txt"
 
 # 시스템 정보 수집
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+with open(raw_dir / 'systeminfo.txt', 'w') as f:
+    subprocess.run(['systeminfo'], stdout=f)
 
 # IIS 설정 수집
-$applicationHostConfig = Get-Content -Path "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
+application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+shutil.copy(application_host_config, raw_dir / 'iis_setting.txt')
 
 # 계정 잠금 임계값 검사
-If (Test-Path $securityConfig) {
-    $lockoutThreshold = (Get-Content $securityConfig | Select-String "LockoutBadCount").ToString().Split('=')[1].Trim()
+if security_config.exists():
+    with open(security_config, 'r') as file:
+        lines = file.readlines()
+        lockout_threshold = [line.split('=')[1].strip() for line in lines if "LockoutBadCount" in line][0]
 
-    # 계정 잠금 임계값 검사 후 JSON 객체 업데이트
-    If ($lockoutThreshold -gt 5) {
-        $json.진단결과 = "취약"
-        $json.현황 += "계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다."
-    } ElseIf ($lockoutThreshold -eq 0) {
-        $json.진단결과 = "취약"
-        $json.현황 += "계정 잠금 임계값이 설정되지 않았습니다(없음)."
-    } Else {
-        $json.현황 += "계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
-    }
-}
+        # 계정 잠금 임계값 검사 후 JSON 객체 업데이트
+        if int(lockout_threshold) > 5:
+            diagnosis_result["진단결과"] = "취약"
+            diagnosis_result["현황"].append("계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다.")
+        elif int(lockout_threshold) == 0:
+            diagnosis_result["진단결과"] = "취약"
+            diagnosis_result["현황"].append("계정 잠금 임계값이 설정되지 않았습니다(없음).")
+        else:
+            diagnosis_result["현황"].append("계정 잠금 임계값이 준수 범위 내에 설정되었습니다.")
 
 # JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-04.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+json_file_path = result_dir / 'W-04.json'
+with open(json_file_path, 'w') as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("스크립트 실행 완료")
