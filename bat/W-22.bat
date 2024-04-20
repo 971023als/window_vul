@@ -1,58 +1,52 @@
-$json = @{
-        "분류": "서비스관리",
-        "코드": "W-22",
-        "위험도": "상",
-        "진단 항목": "IIS 서비스 구동 점검",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "IIS 서비스 구동 점검"
-    }
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    $script = "-File `"" + $MyInvocation.MyCommand.Definition + "`""
-    Start-Process PowerShell.exe -ArgumentList $script -Verb RunAs
-    Exit
-}
+:: 관리자 권한으로 실행 확인
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
+    exit
+)
 
-# 콘솔 환경 설정 및 초기 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.ForegroundColor = "Green"
+:: 기본 설정
+set "computerName=%COMPUTERNAME%"
+set "rawPath=C:\Window_%computerName%_raw"
+set "resultPath=C:\Window_%computerName%_result"
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force
-mkdir $rawDir, $resultDir
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
-Set-Location -Path $rawDir
-(Get-Location).Path | Out-File "$rawDir\install_path.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+:: 디렉토리 초기화 및 생성
+if exist "%rawPath%" rmdir /s /q "%rawPath%"
+if exist "%resultPath%" rmdir /s /q "%resultPath%"
+mkdir "%rawPath%"
+mkdir "%resultPath%"
 
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | ForEach-Object {
-    $_.Matches.Value >> "$rawDir\iis_path1.txt"
-}
+:: 보안 정책 파일 내보내기 및 시스템 정보 수집
+secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
+systeminfo > "%rawPath%\systeminfo.txt"
 
-# Update the JSON object based on the "World Wide Web Publishing Service" status analysis
-if ($serviceStatus.Status -eq "Running") {
-    $json.현황 += "위험 상태: 'World Wide Web Publishing Service'가 활성화되어 있습니다."
-    $json.진단결과 = "취약"
-} else {
-    $json.현황 += "정상 상태: 'World Wide Web Publishing Service'가 비활성화되어 있습니다."
-    $json.진단결과 = "양호"
-}
+:: IIS 설정 분석
+set "iisConfigFile=%env:WinDir%\System32\Inetsrv\Config\applicationHost.Config"
+if exist "!iisConfigFile!" (
+    type "!iisConfigFile!" > "%rawPath%\iis_setting.txt"
+    for /f "delims=" %%a in ('type "%rawPath%\iis_setting.txt" ^| findstr /I "physicalPath bindingInformation"') do (
+        echo %%a >> "%rawPath%\iis_path1.txt"
+    )
+)
 
-# Optionally, append HTTP paths information to the JSON object if the service is running
-if ($httpPaths) {
-    $json.현황 += "활성화된 HTTP 경로: $($httpPaths.Count)"
-    $json.HTTP경로 = $httpPaths -join "; "
-}
+:: IIS 서비스 상태 확인
+sc query W3SVC | find "RUNNING" >nul
+if %errorlevel% == 0 (
+    set "serviceStatus=Running"
+) else (
+    set "serviceStatus=Stopped"
+)
 
-# Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-22.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+:: 진단 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-22.csv"
+if "!serviceStatus!" == "Running" (
+    echo 서비스관리,W-22,상,IIS 서비스 구동 점검,취약,"'World Wide Web Publishing Service'가 활성화되어 있습니다.",IIS 서비스 구동 점검 >> "%resultPath%\W-22.csv"
+) else (
+    echo 서비스관리,W-22,상,IIS 서비스 구동 점검,양호,"'World Wide Web Publishing Service'가 비활성화되어 있습니다.",IIS 서비스 구동 점검 >> "%resultPath%\W-22.csv"
+)
 
+:: 스크립트 실행 완료 메시지
+echo 스크립트 실행 완료
