@@ -1,56 +1,44 @@
-$json = @{
-    "분류" = "계정관리"
-    "코드" = "W-12"
-    "위험도" = "상"
-    "진단 항목" = "패스워드최소사용기간"
-    "진단 결과" = "양호"  # 기본 값을 "양호"로 가정
-    "현황" = @()
-    "대응방안" = "패스워드최소사용기간"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한으로 실행되지 않았다면 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
-{
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath" -Verb RunAs
-    Exit
-}
+:: 관리자 권한으로 실행 확인
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
+    exit
+)
 
-# 콘솔 환경 설정
-chcp 437 > $null
-$Host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+:: 기본 설정
+set "computerName=%COMPUTERNAME%"
+set "rawPath=C:\Window_%computerName%_raw"
+set "resultPath=C:\Window_%computerName%_result"
 
-# 디렉토리 및 파일 초기화
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_$($computerName)_raw"
-$resultDir = "C:\Window_$($computerName)_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-New-Item -Path "$rawDir\compare.txt" -ItemType File -Force
-Get-Location | Out-File -FilePath "$rawDir\install_path.txt"
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
+:: 디렉토리 초기화 및 생성
+if exist "%rawPath%" rmdir /s /q "%rawPath%"
+if exist "%resultPath%" rmdir /s /q "%resultPath%"
+mkdir "%rawPath%"
+mkdir "%resultPath%"
 
-# IIS 설정 파일 복사 및 분석
-Copy-Item -Path "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config" -Destination "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
+:: 보안 정책 파일 내보내기
+secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
 
-# 최소 암호 사용 기간 분석
-$localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
-$minimumPasswordAge = ($localSecurityPolicy | Where-Object { $_ -match "MinimumPasswordAge" } | ForEach-Object {
-    If ($_ -match "\d+") {
-        [int]$matches[0]
-    }
-}).FirstOrDefault()
+:: 패스워드 최소 사용 기간 설정 검사
+set "진단결과=양호"
+set "현황="
 
-# Update the JSON object based on the minimum password age analysis
-if ($minimumPasswordAge -gt 0) {
-    $json.현황 += "최소 암호 사용 기간은 설정됨: ${minimumPasswordAge}일."
-} else {
-    $json.진단결과 = "취약"
-    $json.현황 += "최소 암호 사용 기간이 설정되지 않음."
-}
+for /f "tokens=2 delims== eol= " %%a in ('findstr /R "MinimumPasswordAge = [0-9]*" "%rawPath%\Local_Security_Policy.txt"') do (
+    set "minimumPasswordAge=%%a"
+    if !minimumPasswordAge! gtr 0 (
+        set "현황=최소 암호 사용 기간은 설정됨: !minimumPasswordAge!일."
+    ) else (
+        set "진단결과=취약"
+        set "현황=최소 암호 사용 기간이 설정되지 않음."
+    )
+)
 
-# Save the JSON results to a file named "1.json"
-$jsonFilePath = "$resultDir\W-12.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+:: 진단 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-12.csv"
+echo 계정관리,W-12,상,패스워드최소사용기간,!진단결과!,!현황!,패스워드최소사용기간 설정 >> "%resultPath%\W-12.csv"
+
+:: 스크립트 실행 완료 메시지
+echo 스크립트 실행 완료
