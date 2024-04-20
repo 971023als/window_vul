@@ -1,58 +1,71 @@
-# Initial Setup
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-33"
-    위험도 = "상"
-    진단 항목 = "해독 가능한 암호화를 사용하여 암호 저장"
-    진단 결과 = "양호"  # Presuming "Good" as the default value
-    현황 = @()
-    대응방안 = "Implement encryption that cannot be decrypted to store passwords"
+import os
+import json
+import subprocess
+from pathlib import Path
+import shutil
+
+# Initialize diagnostics JSON object
+diagnosis_result = {
+    "분류": "계정관리",
+    "코드": "W-33",
+    "위험도": "상",
+    "진단 항목": "해독 가능한 암호화를 사용하여 암호 저장",
+    "진단 결과": "양호",  # Presuming "Good" as the default value
+    "현황": [],
+    "대응방안": "Implement encryption that cannot be decrypted to store passwords"
 }
 
-# Check and Request Administrator Privileges
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    exit
-}
+# Check and request administrator privileges
+def check_admin_privileges():
+    if not os.getuid() == 0:
+        print("Administrator privileges are required...")
+        subprocess.call(['sudo', 'python3'] + sys.argv)
+        exit()
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+# Prepare environment
+def prepare_environment(computer_name, raw_dir, result_dir):
+    shutil.rmtree(raw_dir, ignore_errors=True)
+    shutil.rmtree(result_dir, ignore_errors=True)
+    os.makedirs(raw_dir)
+    os.makedirs(result_dir)
+    subprocess.run(['secedit', '/export', '/cfg', f'{raw_dir}\\Local_Security_Policy.txt'], capture_output=True)
+    Path(f"{raw_dir}\\compare.txt").touch()
+    with open(f"{raw_dir}\\install_path.txt", 'w') as f:
+        f.write(str(Path.cwd()))
+    with open(f"{raw_dir}\\systeminfo.txt", 'w') as f:
+        subprocess.run(['systeminfo'], stdout=f)
 
-# Prepare Environment
-function Prepare-Environment {
-    Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+# Analyze IIS configuration
+def analyze_iis_configuration(raw_dir, result_dir, computer_name):
+    application_host_config_path = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
+    if application_host_config_path.exists():
+        application_host_config = application_host_config_path.read_text()
+        with open(f"{raw_dir}\\iis_setting.txt", 'w') as file:
+            file.write(application_host_config)
 
-    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-    New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
+        unsupported_extensions = [".htr", ".idc", ".stm", ".shtm", ".shtml", ".printer", ".htw", ".ida", ".idq"]
+        found_extensions = [line for line in application_host_config.split('\n') if any(ext in line for ext in unsupported_extensions)]
+        
+        if found_extensions:
+            diagnosis_result["현황"].append("Unsupported extensions found posing a security risk.")
+            diagnosis_result["진단 결과"] = "취약"
+            with open(f"{result_dir}\\W-Window-{computer_name}.txt", 'w') as file:
+                file.writelines(found_extensions)
+        else:
+            diagnosis_result["현황"].append("No unsupported extensions found, complying with security standards.")
 
-    Get-Location.Path | Out-File -FilePath "$rawDir\install_path.txt"
-    systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
-}
+# Main execution
+computer_name = os.environ.get('COMPUTERNAME', 'UNKNOWN_PC')
+raw_dir = Path(f"C:\\Window_{computer_name}_raw")
+result_dir = Path(f"C:\\Window_{computer_name}_result")
 
-# IIS Configuration Analysis
-function Analyze-IISConfiguration {
-    $applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-    $applicationHostConfig = Get-Content $applicationHostConfigPath
-    $applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
+check_admin_privileges()
+prepare_environment(computer_name, raw_dir, result_dir)
+analyze_iis_configuration(raw_dir, result_dir, computer_name)
 
-    $unsupportedExtensions = @(".htr", ".idc", ".stm", ".shtm", ".shtml", ".printer", ".htw", ".ida", ".idq")
-    $foundExtensions = $applicationHostConfig | Where-Object { $_ -match ($unsupportedExtensions -join "|") }
+# Save JSON results to a file
+json_file_path = result_dir / f'W-33.json'
+with open(json_file_path, 'w') as file:
+    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
 
-    if ($foundExtensions) {
-        $json.현황 += "Unsupported extensions found posing a security risk."
-        $json.진단 결과 = "취약"
-        $foundExtensions | Out-File "$resultDir\W-Window-$computerName.txt"
-    } else {
-        $json.현황 += "No unsupported extensions found, complying with security standards."
-    }
-}
-
-# Execute
-Prepare-Environment
-Analyze-IISConfiguration
-
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-33.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+print("Script execution completed.")
