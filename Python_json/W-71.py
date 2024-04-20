@@ -1,48 +1,59 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-71"
-    위험도 = "상"
-    진단 항목 = "디스크볼륨 암호화 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "디스크볼륨 암호화 설정을 통한 데이터 보호 강화"
-}
+import os
+import json
+import subprocess
 
-# 관리자 권한 요청 및 환경 설정
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "Start-Process PowerShell -ArgumentList '-ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Definition)`"' -Verb RunAs" -Verb RunAs
-    exit
-}
+def check_admin_rights():
+    """ Check if the script is run as administrator. """
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception as e:
+        return False
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def setup_directories(computer_name):
+    """ Prepare directories for storing results. """
+    raw_dir = f"C:\\Windows_{computer_name}_raw"
+    result_dir = f"C:\\Windows_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-# 기존 데이터 삭제 및 디렉터리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def check_bitlocker_status():
+    """ Check BitLocker status for the C: drive. """
+    try:
+        result = subprocess.run(['manage-bde', '-status', 'C:'], capture_output=True, text=True)
+        if 'Protection On' in result.stdout:
+            return True, "C 드라이브가 BitLocker로 암호화되어 있습니다."
+        else:
+            return False, "C 드라이브가 BitLocker로 암호화되어 있지 않습니다."
+    except subprocess.CalledProcessError:
+        return False, "BitLocker 상태 확인 실패."
 
-# 디스크볼륨 암호화 설정 검사
-# 예시: BitLocker 사용 여부 확인 (실제 환경에 맞게 조정 필요)
-$bitLockerStatus = Get-BitLockerVolume -MountPoint "C:" | Select-Object -ExpandProperty ProtectionStatus
+def main():
+    if not check_admin_rights():
+        print("이 스크립트는 관리자 권한으로 실행되어야 합니다.")
+        return
+    
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_directories(computer_name)
+    
+    encrypted, status_message = check_bitlocker_status()
+    
+    result = {
+        "분류": "보안관리",
+        "코드": "W-71",
+        "위험도": "상",
+        "진단 항목": "디스크볼륨 암호화 설정",
+        "진단 결과": "양호" if encrypted else "취약",
+        "현황": [status_message],
+        "대응방안": "디스크볼륨 암호화 설정을 통한 데이터 보호 강화"
+    }
+    
+    json_path = os.path.join(result_dir, f"W-71_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-if ($bitLockerStatus -eq 1) {
-    $json.현황 += "C 드라이브가 BitLocker로 암호화되어 있습니다."
-} else {
-    $json.진단 결과 = "취약"
-    $json.현황 += "C 드라이브가 BitLocker로 암호화되어 있지 않습니다."
-}
-
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-71_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
-
-# 결과 요약 및 출력
-Get-Content -Path "$resultDir\W-71_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
-Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
-
-# 정리 작업 및 스크립트 종료
-Remove-Item "$rawDir\*" -Force
-Write-Host "스크립트를 종료합니다."
+if __name__ == "__main__":
+    main()

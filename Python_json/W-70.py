@@ -1,50 +1,64 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-70"
-    위험도 = "상"
-    진단 항목 = "이동식 미디어 포맷 및 꺼내기 허용"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "이동식 미디어의 포맷 및 꺼내기를 적절히 제어"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 확인 및 요청
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"" + $myinvocation.MyCommand.Definition + "`" " + $args
-    Start-Process "PowerShell" -Verb RunAs -ArgumentList $arguments
-    exit
-}
+def check_admin_rights():
+    """ Check if the script is run as administrator. """
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
 
-# 초기 설정 및 디렉터리 생성
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+def setup_directories(computer_name):
+    """ Prepare directories for storing results. """
+    raw_dir = f"C:\\Window_{computer_name}_raw"
+    result_dir = f"C:\\Window_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-# 로컬 보안 정책 내보내기 및 분석
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
-$allocateDASD = $localSecurityPolicy | Where-Object { $_ -match "AllocateDASD" -and $_ -match "0" }
+def export_security_policy(raw_dir):
+    """ Export local security settings to a text file. """
+    output_file = os.path.join(raw_dir, "Local_Security_Policy.txt")
+    subprocess.run(["secedit", "/export", "/cfg", output_file], check=True)
+    return output_file
 
-# 분석 결과에 따른 JSON 업데이트
-if ($allocateDASD) {
-    $json.현황 += "디스크 할당 권한 변경이 관리자만 가능하도록 설정되어 있는 상태입니다."
-} else {
-    $json.진단 결과 = "취약"
-    $json.현황 += "디스크 할당 권한 변경이 관리자만 가능하도록 설정되지 않았습니다."
-}
+def analyze_security_policy(file_path):
+    """ Analyze the local security policy from an exported file. """
+    with open(file_path, 'r', encoding='utf-16') as file:
+        settings = file.read()
 
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-70_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
+    allocate_dasd = "AllocateDASD" in settings and "=0" in settings
+    return not allocate_dasd  # Return True if vulnerable
 
-# 결과 요약 및 출력
-Get-Content -Path "$resultDir\W-70_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
-Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
+def main():
+    if not check_admin_rights():
+        print("관리자 권한으로 스크립트를 실행해야 합니다.")
+        return
+    
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_directories(computer_name)
+    
+    policy_file = export_security_policy(raw_dir)
+    is_vulnerable = analyze_security_policy(policy_file)
+    
+    result = {
+        "분류": "보안관리",
+        "코드": "W-70",
+        "위험도": "상",
+        "진단 항목": "이동식 미디어 포맷 및 꺼내기 허용",
+        "진단 결과": "취약" if is_vulnerable else "양호",
+        "현황": ["디스크 할당 권한 변경이 관리자만 가능하도록 설정되지 않았습니다."] if is_vulnerable else ["디스크 할당 권한 변경이 관리자만 가능하도록 설정되어 있는 상태입니다."],
+        "대응방안": "이동식 미디어의 포맷 및 꺼내기를 적절히 제어"
+    }
+    
+    json_path = os.path.join(result_dir, f"W-70_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-# 정리 작업 및 스크립트 종료
-Remove-Item "$rawDir\*" -Force
-Write-Host "스크립트를 종료합니다."
+if __name__ == "__main__":
+    main()

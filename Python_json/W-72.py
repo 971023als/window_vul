@@ -1,49 +1,59 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-72"
-    위험도 = "상"
-    진단 항목 = "Dos공격 방어 레지스트리 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "Dos공격 방어를 위한 레지스트리 설정 조정"
-}
+import os
+import json
+import subprocess
+import winreg
 
-# 관리자 권한 요청 및 환경 설정
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "Start-Process PowerShell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs"
-    Exit
-}
+def check_admin_rights():
+    """ Check if the script is run with administrator privileges. """
+    try:
+        return os.getuid() == 0
+    except AttributeError:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin()
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+def setup_directories(computer_name):
+    """ Setup directories for storing results. """
+    raw_dir = f"C:\\Windows_{computer_name}_raw"
+    result_dir = f"C:\\Windows_{computer_name}_result"
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(result_dir, exist_ok=True)
+    return raw_dir, result_dir
 
-# 기존 데이터 삭제 및 디렉터리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force
-New-Item -Path $rawDir, $resultDir -ItemType Directory
+def check_dos_defense():
+    """ Check the SynAttackProtect registry setting. """
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters") as key:
+            syn_attack_protect = winreg.QueryValueEx(key, "SynAttackProtect")[0]
+            return syn_attack_protect == 1
+    except FileNotFoundError:
+        return False
 
-# W-72 검사: Dos공격 방어 관련 레지스트리 설정 검사
-# 예시: SynAttackProtect 레지스트리 키 확인
-$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
-$synAttackProtect = Get-ItemProperty -Path $regPath -Name "SynAttackProtect" -ErrorAction SilentlyContinue
+def main():
+    if not check_admin_rights():
+        print("이 스크립트는 관리자 권한으로 실행되어야 합니다.")
+        return
+    
+    computer_name = os.getenv("COMPUTERNAME", "UNKNOWN_PC")
+    raw_dir, result_dir = setup_directories(computer_name)
+    
+    syn_attack_protect_enabled = check_dos_defense()
+    
+    result = {
+        "분류": "보안관리",
+        "코드": "W-72",
+        "위험도": "상",
+        "진단 항목": "Dos공격 방어 레지스트리 설정",
+        "진단 결과": "양호" if syn_attack_protect_enabled else "취약",
+        "현황": ["SynAttackProtect가 활성화되어 DoS 공격 방어 설정이 강화되었습니다."] if syn_attack_protect_enabled else ["SynAttackProtect가 비활성화되어 있거나, 설정이 적절히 조정되지 않았습니다."],
+        "대응방안": "원격 시스템에서 강제로 시스템 종료 정책을 적절히 설정"
+    }
+    
+    json_path = os.path.join(result_dir, f"W-72_{computer_name}_diagnostic_results.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=4)
+    
+    print(f"진단 결과가 저장되었습니다: {json_path}")
 
-if ($synAttackProtect -and $synAttackProtect.SynAttackProtect -eq 1) {
-    $json.현황 += "SynAttackProtect가 활성화되어 DoS 공격 방어 설정이 강화되었습니다."
-} else {
-    $json.진단 결과 = "취약"
-    $json.현황 += "SynAttackProtect가 비활성화되어 있거나, 설정이 적절히 조정되지 않았습니다."
-}
-
-# JSON 데이터를 파일로 저장
-$jsonPath = "$resultDir\W-72_${computerName}_diagnostic_results.json"
-$json | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath
-Write-Host "진단 결과가 저장되었습니다: $jsonPath"
-
-# 결과 요약 및 출력
-Get-Content -Path "$resultDir\W-72_${computerName}_diagnostic_results.json" | Out-File -FilePath "$resultDir\security_audit_summary.txt"
-Write-Host "결과가 $resultDir\security_audit_summary.txt에 저장되었습니다."
-
-# 정리 작업 및 스크립트 종료
-Remove-Item "$rawDir\*" -Force
-Write-Host "스크립트를 종료합니다."
+if __name__ == "__main__":
+    main()
