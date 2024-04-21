@@ -1,60 +1,55 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "서비스관리"
-    코드 = "W-52"
-    위험도 = "상"
-    진단 항목 = "불필요한 ODBC/OLE-DB 데이터 소스와 드라이브 제거"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "불필요한 ODBC/OLE-DB 데이터 소스와 드라이브 제거"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
+:: 관리자 권한 요청
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
     exit
-}
+)
 
-# 콘솔 환경 설정
-chcp 437 > $null
-$Host.UI.RawUI.BackgroundColor = "DarkGreen"
-$Host.UI.RawUI.ForegroundColor = "White"
-Clear-Host
+:: 콘솔 환경 설정
+chcp 437 >nul
+color 2A
+cls
+echo 환경을 초기화 중입니다...
 
-# 기본 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+:: 감사 구성 변수 설정
+set "분류=서비스관리"
+set "코드=W-52"
+set "위험도=상"
+set "진단항목=불필요한 ODBC/OLE-DB 데이터 소스와 드라이브 제거"
+set "진단결과=양호"
+set "현황="
+set "대응방안=불필요한 ODBC/OLE-DB 데이터 소스와 드라이브 제거"
 
-# 디렉터리 준비
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
+:: 디렉터리 설정
+set "computerName=%COMPUTERNAME%"
+set "rawDir=C:\Window_%computerName%_raw"
+set "resultDir=C:\Window_%computerName%_result"
 
-# ODBC 데이터 소스 설정 검사
-Write-Host "------------------------------------------ODBC Data Sources Setting------------------------------------------"
-$odbcDataSources = Get-ItemProperty "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources" -ErrorAction SilentlyContinue
+if exist "%rawDir%" rmdir /s /q "%rawDir%"
+if exist "%resultDir%" rmdir /s /q "%resultDir%"
+mkdir "%rawDir%"
+mkdir "%resultDir%"
 
-If ($odbcDataSources.PSObject.Properties.Name.Count -gt 0) {
-    $json.진단 결과 = "취약"
-    $json.현황 += "ODBC 데이터 소스가 구성되어 있으며, 이는 필요하지 않을 경우 취약점이 될 수 있습니다. 현재 구성된 소스: $($odbcDataSources.PSObject.Properties.Name)"
-} Else {
-    $json.진단 결과 = "양호"
-    $json.현황 += "불필요한 ODBC 데이터 소스가 구성되어 있지 않으며, 시스템은 안전합니다."
-}
+:: ODBC 데이터 소스 설정 검사
+echo ODBC 데이터 소스 설정을 검사 중입니다...
+PowerShell -Command "
+    $odbcDataSources = Get-ItemProperty 'HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC Data Sources' -ErrorAction SilentlyContinue
+    if ($odbcDataSources.PSObject.Properties.Name.Count -gt 0) {
+        'W-52, 취약, ODBC 데이터 소스가 구성되어 있으며, 이는 필요하지 않을 경우 취약점이 될 수 있습니다. 현재 구성된 소스: '+$odbcDataSources.PSObject.Properties.Name | Out-File '%resultDir%\W-52-Result.csv'
+        echo '취약: ODBC 데이터 소스가 구성되어 있습니다.'
+    } else {
+        'W-52, 양호, 불필요한 ODBC 데이터 소스가 구성되어 있지 않으며, 시스템은 안전합니다., ' | Out-File '%resultDir%\W-52-Result.csv'
+        echo '양호: 불필요한 ODBC 데이터 소스가 구성되어 있지 않습니다.'
+    }
+"
 
-Write-Host "------------------------------------------End of ODBC Data Sources Setting------------------------------------------"
+:: 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
+echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-52.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
-
-# 결과 요약
-Write-Host "Results have been saved to: $resultDir\security_audit_summary.txt"
-Get-Content "$resultDir\W-52_${computerName}_diagnostic_results.json" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Write-Host "Cleaning up..."
-Remove-Item -Path "$rawDir\*" -Force
-
-Write-Host "Script has ended."
+echo 감사 완료. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+ENDLOCAL
+pause

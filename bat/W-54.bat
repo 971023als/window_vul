@@ -1,58 +1,61 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "패치관리"
-    코드 = "W-54"
-    위험도 = "상"
-    진단 항목 = "예약된 작업에 의심스러운 명령이 등록되어 있는지 점검"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "예약된 작업에 의심스러운 명령이 등록되어 있는지 점검"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
+:: 관리자 권한 요청
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
     exit
-}
+)
 
-# 환경 설정
-$Host.UI.RawUI.BackgroundColor = "DarkGreen"
-$Host.UI.RawUI.ForegroundColor = "White"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Clear-Host
+:: 콘솔 환경 설정
+chcp 437 >nul
+color 2A
+cls
+echo 환경을 초기화 중입니다...
 
-# 변수 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+:: 감사 구성 변수 설정
+set "분류=패치관리"
+set "코드=W-54"
+set "위험도=상"
+set "진단항목=예약된 작업에 의심스러운 명령이 등록되어 있는지 점검"
+set "진단결과=양호"
+set "현황="
+set "대응방안=예약된 작업에 의심스러운 명령이 등록되어 있는지 점검"
 
-# 디렉터리 생성 및 초기화
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
+:: 디렉터리 설정
+set "computerName=%COMPUTERNAME%"
+set "rawDir=C:\Window_%computerName%_raw"
+set "resultDir=C:\Window_%computerName%_result"
 
-# 스케줄러 작업 검사
-$schedulerTasks = schtasks /query /fo CSV | ConvertFrom-Csv
-If ($schedulerTasks) {
-    $suspiciousTasks = $schedulerTasks | Where-Object { $_.TaskName -like "*admin*" -or $_.TaskName -like "*hack*" }
-    If ($suspiciousTasks) {
-        $json.진단 결과 = "경고"
-        $json.현황 += "의심스러운 스케줄러 작업이 발견되었습니다: $($suspiciousTasks.TaskName)"
-    } Else {
-        $json.현황 += "의심스러운 스케줄러 작업이 없으며, 시스템은 안전합니다."
+if exist "%rawDir%" rmdir /s /q "%rawDir%"
+if exist "%resultDir%" rmdir /s /q "%resultDir%"
+mkdir "%rawDir%"
+mkdir "%resultDir%"
+
+:: 스케줄러 작업 검사
+echo 스케줄러 작업을 검사 중입니다...
+PowerShell -Command "
+    $schedulerTasks = schtasks /query /fo CSV | ConvertFrom-Csv
+    if ($schedulerTasks) {
+        $suspiciousTasks = $schedulerTasks | Where-Object { $_.TaskName -like '*admin*' -or $_.TaskName -like '*hack*' }
+        if ($suspiciousTasks) {
+            'W-54, 경고, 의심스러운 스케줄러 작업이 발견되었습니다: '+$suspiciousTasks.TaskName | Out-File '%resultDir%\W-54-Result.csv'
+            echo '경고: 의심스러운 스케줄러 작업이 발견되었습니다.'
+        } else {
+            'W-54, 양호, 의심스러운 스케줄러 작업이 없으며, 시스템은 안전합니다., ' | Out-File '%resultDir%\W-54-Result.csv'
+            echo '양호: 의심스러운 스케줄러 작업이 없습니다.'
+        }
+    } else {
+        'W-54, 양호, 스케줄러에 예약된 작업이 없으며, 이는 보안 상태가 안전함을 나타냅니다., ' | Out-File '%resultDir%\W-54-Result.csv'
+        echo '양호: 스케줄러에 예약된 작업이 없습니다.'
     }
-} Else {
-    $json.현황 += "스케줄러에 예약된 작업이 없으며, 이는 보안 상태가 안전함을 나타냅니다."
-}
+"
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-54.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+:: 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
+echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
 
-# 결과 요약 및 저장
-Get-Content "$jsonFilePath" | Out-File "$resultDir\security_audit_summary.txt"
-
-# 정리 작업
-Remove-Item "$rawDir\*" -Force
-
-Write-Host "Script has completed. Results have been saved to $resultDir\security_audit_summary.txt."
+echo 감사 완료. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+ENDLOCAL
+pause
