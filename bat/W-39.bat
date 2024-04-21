@@ -1,81 +1,59 @@
-# Define the audit configuration using a custom object for easier property management
-$json = [PSCustomObject]@{
-    분류 = "서비스관리"
-    코드 = "W-39"
-    위험도 = "상"
-    진단항목 = "Anonymous FTP 금지"
-    진단결과 = "양호" # 기본 값을 "양호"로 설정
-    현황 = @()
-    대응방안 = "Anonymous FTP 금지"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# Request Administrator privileges
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-If (-not $isAdmin) {
-    $info = [System.Diagnostics.ProcessStartInfo]::new("PowerShell")
-    $info.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $args"
-    $info.Verb = "runas"
-    [System.Diagnostics.Process]::Start($info)
-    Exit
-}
+:: 관리자 권한 요청
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
+    exit
+)
 
-# Set up the console environment
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+:: 콘솔 환경 설정
+chcp 437 >nul
+color 2A
+cls
+echo 환경을 초기화 중입니다...
 
-Write-Host "------------------------------------------Configuration Initialization---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Audit_${computerName}_Raw"
-$resultDir = "C:\Audit_${computerName}_Results"
+:: 감사 구성 변수 설정
+set "분류=서비스관리"
+set "코드=W-39"
+set "위험도=상"
+set "진단항목=Anonymous FTP 금지"
+set "진단결과=양호"
+set "현황="
+set "대응방안=Anonymous FTP 금지"
 
-# Clean up previous directories and create new ones for the current audit
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+:: 디렉터리 설정
+set "computerName=%COMPUTERNAME%"
+set "rawDir=C:\Audit_%computerName%_Raw"
+set "resultDir=C:\Audit_%computerName%_Results"
 
-# Export local security policy and generate a comparison file
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
+if exist "%rawDir%" rmdir /s /q "%rawDir%"
+if exist "%resultDir%" rmdir /s /q "%resultDir%"
+mkdir "%rawDir%"
+mkdir "%resultDir%"
 
-# Save installation path and collect system information
-Set-Location -Path $rawDir
-Get-Location | Out-File -FilePath "$rawDir\install_path.txt"
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
-
-Write-Host "------------------------------------------IIS Configuration-----------------------------------"
-Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config" | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | ForEach-Object { $_.Line } | Out-File -FilePath "$rawDir\iis_path1.txt"
-
-# Analyze IIS settings and save the paths
-$line = Get-Content "$rawDir\iis_path1.txt" -Raw
-$line | Out-File -FilePath "$rawDir\line.txt"
-
-1..5 | ForEach-Object {
-    $filePath = "$rawDir\path$_.txt"
-    Get-Content "$rawDir\line.txt" | ForEach-Object {
-        $_ | Out-File -FilePath $filePath -Append
+:: 진단 로직 실행
+echo FTP 설정을 진단 중입니다...
+PowerShell -Command "
+    $isSecure = $true
+    $ftpSettings = Get-Content '%rawDir%\FTP_Settings.txt' -ErrorAction SilentlyContinue
+    if ($ftpSettings -match 'anonymous') {
+        $isSecure = $false
     }
-}
+    if (!$isSecure) {
+        'W-39, 위험, Anonymous FTP 접근이 허용되어 있습니다.' | Out-File '%resultDir%\W-39-Result.csv'
+        echo '위험: Anonymous FTP 접근이 허용되어 있습니다.'
+    } else {
+        'W-39, 양호, Anonymous FTP 접근이 금지되어 있습니다.' | Out-File '%resultDir%\W-39-Result.csv'
+        echo '양호: Anonymous FTP 접근이 금지되어 있습니다.'
+    }
+"
 
-# Append MetaBase.xml if applicable
-$metaBasePath = "$env:WINDIR\system32\inetsrv\MetaBase.xml"
-If (Test-Path $metaBasePath) {
-    Get-Content $metaBasePath | Out-File -FilePath "$rawDir\iis_setting.txt" -Append
-}
+:: 결과 CSV 파일로 저장
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
+echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
 
-Write-Host "------------------------------------------Configuration Complete-------------------------------------------"
-
-# Update JSON data based on diagnostics
-$isSecure = $true # This value should be determined by actual diagnostic logic
-
-if (-not $isSecure) {
-    $json.진단결과 = "위험"
-    $json.현황 = @("EVERYONE 그룹에 대한 FullControl 접근 권한이 발견되었습니다.")
-} else {
-    $json.현황 = @("FTP 디렉토리 접근권한이 적절히 설정됨.")
-}
-
-# Save JSON results to a file
-$jsonFilePath = "$resultDir\W-39.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+echo 감사 완료. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+ENDLOCAL
+pause
