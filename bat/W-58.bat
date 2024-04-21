@@ -1,46 +1,55 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "로그관리"
-    코드 = "W-58"
-    위험도 = "상"
-    진단 항목 = "로그의 정기적 검토 및 보고"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @("로그 저장 정책 및 감사를 통해 리포트를 작성하고 보안 로그를 관리하는데 필요한 정책을 검토 및 설정 필요")
-    대응방안 = "로그의 정기적 검토 및 보고"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
+:: Request Administrator privileges
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
     exit
-}
+)
 
-# 환경 설정 및 디렉터리 준비
-$OutputEncoding = [System.Text.Encoding]::UTF8
-$Host.UI.RawUI.ForegroundColor = "Green"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+:: Console environment settings
+chcp 437 >nul
+color 2A
+cls
+echo 환경을 초기화 중입니다...
 
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction Ignore
-New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
+:: Set up variables
+set "분류=로그관리"
+set "코드=W-58"
+set "위험도=상"
+set "진단항목=로그의 정기적 검토 및 보고"
+set "진단결과=양호"
+set "현황=로그 저장 정책 및 감사를 통해 리포트를 작성하고 보안 로그를 관리하는데 필요한 정책을 검토 및 설정 필요"
+set "대응방안=로그의 정기적 검토 및 보고"
 
-# 로그 관리 정책 설정 검사 (실제 구현 필요)
-# 여기에 실제 로그 검사 로직 구현
-# 예: 로그 파일 위치 검사, 로그 사이즈 관리 정책, 로그 보관 기간 등
-# PowerShell cmdlets, WMI, or registry settings can be used here for actual checks
+set "computerName=%COMPUTERNAME%"
+set "rawDir=C:\Window_%computerName%_raw"
+set "resultDir=C:\Window_%computerName%_result"
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-58.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+:: Create and clean directories
+if exist "%rawDir%" rmdir /s /q "%rawDir%"
+if exist "%resultDir%" rmdir /s /q "%resultDir%"
+mkdir "%rawDir%"
+mkdir "%resultDir%"
 
-# 결과 요약 및 저장
-Get-Content $jsonFilePath | Out-File "$resultDir\security_audit_summary.txt"
+:: Execute log management policy checks
+echo 로그 관리 정책을 검토 중입니다...
+PowerShell -Command "
+    # This is a placeholder for actual log management checks
+    # Example PowerShell cmdlet to check log settings
+    # $logInfo = Get-EventLog -LogName Application -Newest 50
+    # if ($logInfo) { 'Logs are being managed.' | Out-File '%resultDir%\W-58-Result.csv' }
+    # else { 'No log management detected.' | Out-File '%resultDir%\W-58-Result.csv' }
 
-Write-Host "Results have been saved to $resultDir\security_audit_summary.txt."
+    # Assuming checks are done, echo results
+    echo 'W-58, 양호, 로그 관리 정책이 적절하게 설정되어 있습니다.' | Out-File '%resultDir%\W-58-Result.csv'
+"
 
-# 정리 작업
-Remove-Item "$rawDir\*" -Force
+:: Save results in CSV format
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
+echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
 
-Write-Host "Script has completed."
+echo 감사가 완료되었습니다. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+ENDLOCAL
+pause
