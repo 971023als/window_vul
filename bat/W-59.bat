@@ -1,49 +1,55 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "로그관리"
-    코드 = "W-59"
-    위험도 = "상"
-    진단 항목 = "원격으로 액세스할 수 있는 레지스트리 경로"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "원격으로 액세스할 수 있는 레지스트리 경로 차단"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
+:: Request Administrator privileges
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    PowerShell -Command "Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
     exit
-}
+)
 
-# 환경 설정 및 디렉터리 초기화
-$computerName = $env:COMPUTERNAME
-$rawDirectory = "C:\Window_${computerName}_raw"
-$resultDirectory = "C:\Window_${computerName}_result"
+:: Set console environment
+chcp 437 >nul
+color 2A
+cls
+echo 환경을 설정하고 있습니다...
 
-Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
+:: Set up variables
+set "분류=로그관리"
+set "코드=W-59"
+set "위험도=상"
+set "진단항목=원격으로 액세스할 수 있는 레지스트리 경로"
+set "진단결과=양호"
+set "현황="
+set "대응방안=원격으로 액세스할 수 있는 레지스트리 경로 차단"
 
-# Remote Registry 서비스 상태 검사
-$remoteRegistryStatus = Get-Service -Name "RemoteRegistry" -ErrorAction SilentlyContinue
+set "computerName=%COMPUTERNAME%"
+set "rawDir=C:\Window_%computerName%_raw"
+set "resultDir=C:\Window_%computerName%_result"
 
-If ($remoteRegistryStatus -and $remoteRegistryStatus.Status -eq 'Running') {
-    $json.진단 결과 = "취약"
-    $json.현황 += "Remote Registry Service가 활성화되어 있으며, 이는 위험합니다."
-} Else {
-    $json.현황 += "Remote Registry Service가 비활성화되어 있으며, 이는 안전합니다."
-}
+:: Prepare directories
+if exist "%rawDir%" rmdir /s /q "%rawDir%"
+if exist "%resultDir%" rmdir /s /q "%resultDir%"
+mkdir "%rawDir%"
+mkdir "%resultDir%"
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDirectory\W-59.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+:: Check Remote Registry service status
+echo 원격 레지스트리 서비스 상태를 검사합니다...
+PowerShell -Command "
+    $remoteRegistryStatus = Get-Service -Name 'RemoteRegistry' -ErrorAction SilentlyContinue
+    if ($remoteRegistryStatus -and $remoteRegistryStatus.Status -eq 'Running') {
+        'W-59, 취약, Remote Registry Service가 활성화되어 있으며, 이는 위험합니다.' | Out-File '%resultDir%\W-59-Result.csv'
+        echo '취약: Remote Registry Service가 활성화되어 있습니다.'
+    } else {
+        'W-59, 양호, Remote Registry Service가 비활성화되어 있으며, 이는 안전합니다.' | Out-File '%resultDir%\W-59-Result.csv'
+        echo '양호: Remote Registry Service가 비활성화되어 있습니다.'
+    }
+"
 
-# 결과 요약 및 저장
-Get-Content -Path "$jsonFilePath" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+:: Save results in CSV format
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
+echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
 
-Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
-
-# 정리 작업
-Remove-Item -Path "$rawDirectory\*" -Force
-
-Write-Host "Script has completed."
+echo 감사가 완료되었습니다. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+ENDLOCAL
+pause

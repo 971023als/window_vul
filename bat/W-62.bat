@@ -1,56 +1,62 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "보안관리"
-    코드 = "W-62"
-    위험도 = "상"
-    진단 항목 = "백신 프로그램 설치"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "백신 프로그램 설치"
-}
+@echo off
+SETLOCAL EnableDelayedExpansion
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
+:: Request Administrator privileges
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    PowerShell -Command "Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'" -Wait
     exit
-}
+)
 
-# 환경 설정 및 디렉터리 초기화
-$computerName = $env:COMPUTERNAME
-$rawDirectory = "C:\Window_${computerName}_raw"
-$resultDirectory = "C:\Window_${computerName}_result"
+:: Set console environment
+chcp 437 >nul
+color 2A
+cls
+echo 환경을 설정하고 있습니다...
 
-Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
+:: Set up directory variables
+set "분류=보안관리"
+set "코드=W-62"
+set "위험도=상"
+set "진단항목=백신 프로그램 설치"
+set "진단결과=양호"
+set "현황="
+set "대응방안=백신 프로그램 설치"
 
-# ESTsoft 및 AhnLab 소프트웨어 설치 여부 확인
-$softwareKeys = @("HKLM:\SOFTWARE\ESTsoft", "HKLM:\SOFTWARE\AhnLab")
-$softwareInstalled = $False
+set "computerName=%COMPUTERNAME%"
+set "rawDir=C:\Window_%computerName%_raw"
+set "resultDir=C:\Window_%computerName%_result"
 
-foreach ($key in $softwareKeys) {
-    If (Test-Path $key) {
-        $softwareInstalled = $True
-        $json.현황 += "$key 백신 소프트웨어가 설치되어 있습니다."
-        break
+:: Create and clean directories
+if exist "%rawDir%" rmdir /s /q "%rawDir%"
+if exist "%resultDir%" rmdir /s /q "%resultDir%"
+mkdir "%rawDir%"
+mkdir "%resultDir%"
+
+:: Check for antivirus software installation
+PowerShell -Command "
+    $softwareKeys = @('HKLM:\SOFTWARE\ESTsoft', 'HKLM:\SOFTWARE\AhnLab')
+    $softwareInstalled = $False
+
+    foreach ($key in $softwareKeys) {
+        If (Test-Path $key) {
+            $softwareInstalled = $True
+            '양호, $key 백신 소프트웨어가 설치되어 있습니다.' | Out-File '%resultDir%\%코드%-Result.csv'
+            echo '양호: $key 백신 소프트웨어가 설치되어 있습니다.'
+            break
+        }
     }
-}
 
-If (-not $softwareInstalled) {
-    $json.현황 += "ESTsoft 또는 AhnLab 백신 소프트웨어가 설치되지 않았습니다."
-    $json.진단 결과 = "취약"
-}
+    If (-not $softwareInstalled) {
+        '취약, ESTsoft 또는 AhnLab 백신 소프트웨어가 설치되지 않았습니다.' | Out-File '%resultDir%\%코드%-Result.csv'
+        echo '취약: ESTsoft 또는 AhnLab 백신 소프트웨어가 설치되지 않았습니다.'
+    }
+"
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDirectory\W-62.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Output "진단 결과가 저장되었습니다: $jsonFilePath"
+:: Save results in CSV format
+echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
+echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
 
-# 결과 요약 및 저장
-Get-Content -Path "$jsonFilePath" | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
-
-Write-Output "Results have been saved to $resultDirectory\security_audit_summary.txt."
-
-# 정리 작업
-Remove-Item -Path "$rawDirectory\*" -Force
-
-Write-Output "Script has completed."
+echo 감사가 완료되었습니다. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+ENDLOCAL
+pause
