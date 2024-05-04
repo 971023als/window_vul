@@ -1,48 +1,55 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for account lockout threshold analysis
+set "csvFile=!resultDir!\Account_Lockout_Threshold.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=계정관리"
+set "code=W-04"
+set "riskLevel=상"
+set "diagnosisItem=계정 잠금 임계값 설정"
+set "service=보안 정책"
+set "diagnosisResult="
+set "status="
 
-:: 보안 정책 내보내기
-secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-04] 계정 잠금 임계값 설정 검사 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+echo [양호]: 계정 잠금 임계값이 준수 범위 내에 설정되었습니다. >> "!TMP1!"
+echo [취약]: 계정 잠금 임계값이 설정되지 않았거나 너무 높게 설정되어 있습니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: 계정 잠금 임계값 검사
 set "lockoutThreshold=0"
 for /f "tokens=2 delims==" %%a in ('findstr /C:"LockoutBadCount =" "%rawPath%\Local_Security_Policy.txt"') do set "lockoutThreshold=%%a"
 
-:: 진단 결과 설정
-set "진단결과=양호"
-set "현황="
-
 if %lockoutThreshold% gtr 5 (
-    set "진단결과=취약"
-    set "현황=계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다."
+    set "diagnosisResult=취약"
+    set "status=계정 잠금 임계값이 5회 시도보다 많게 설정되어 있습니다."
 ) else if %lockoutThreshold% equ 0 (
-    set "진단결과=취약"
-    set "현황=계정 잠금 임계값이 설정되지 않았습니다(없음)."
+    set "diagnosisResult=취약"
+    set "status=계정 잠금 임계값이 설정되지 않았습니다(없음)."
 ) else (
-    set "현황=계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
+    set "diagnosisResult=양호"
+    set "status=계정 잠금 임계값이 준수 범위 내에 설정되었습니다."
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-04.csv"
-echo 계정관리,W-04,상,계정 잠금 임계값 설정,!진단결과!,!현황!,계정 잠금 임계값 설정 >> "%resultPath%\W-04.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-:: 스크립트 실행 완료 메시지
-echo 스크립트 실행 완료
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal
