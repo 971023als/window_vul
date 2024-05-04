@@ -1,44 +1,52 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for security policy analysis regarding anonymous inclusion
+set "csvFile=!resultDir!\Everyone_Includes_Anonymous_Policy.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=계정관리"
+set "code=W-07"
+set "riskLevel=상"
+set "diagnosisItem=Everyone 사용 권한을 익명 사용자에게 적용"
+set "service=보안 정책"
+set "diagnosisResult="
+set "status="
 
-:: 보안 정책 파일 내보내기
-secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-07] 'EveryoneIncludesAnonymous' 정책 검사 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+echo [양호]: '모든 사용자가 익명 사용자를 포함' 정책이 '사용 안 함'으로 올바르게 설정되어 있습니다. >> "!TMP1!"
+echo [취약]: '모든 사용자가 익명 사용자를 포함' 정책이 '사용'으로 설정되어 잠재적 보안 위험을 초래합니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: 'EveryoneIncludesAnonymous' 정책 검사
-set "진단결과=양호"
-set "현황="
-
 for /f "tokens=2 delims==" %%a in ('findstr /C:"EveryoneIncludesAnonymous =" "%rawPath%\Local_Security_Policy.txt"') do (
     set "everyoneIncludesAnonymous=%%a"
     if "!everyoneIncludesAnonymous!"=="0" (
-        set "현황='모든 사용자가 익명 사용자를 포함' 정책이 '사용 안 함'으로 올바르게 설정되어 더 높은 보안을 보장합니다."
+        set "diagnosisResult=양호"
+        set "status='모든 사용자가 익명 사용자를 포함' 정책이 '사용 안 함'으로 올바르게 설정되어 더 높은 보안을 보장합니다."
     ) else (
-        set "진단결과=취약"
-        set "현황='모든 사용자가 익명 사용자를 포함' 정책이 '사용 안 함'으로 설정되지 않아 잠재적 보안 위험을 초래합니다."
+        set "diagnosisResult=취약"
+        set "status='모든 사용자가 익명 사용자를 포함' 정책이 '사용'으로 설정되어 잠재적 보안 위험을 초래합니다."
     )
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-07.csv"
-echo 계정관리,W-07,상,Everyone 사용 권한을 익명 사용자에게 적용,!진단결과!,!현황!,Everyone 사용 권한을 익명 사용자에게 적용하지 않도록 설정 >> "%resultPath%\W-07.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-:: 스크립트 실행 완료 메시지
-echo 스크립트 실행 완료
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal
