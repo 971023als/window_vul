@@ -1,46 +1,57 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for user account status analysis
+set "csvFile=!resultDir!\User_Account_Status.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=계정관리"
+set "code=W-03"
+set "riskLevel=상"
+set "diagnosisItem=불필요한 계정 제거"
+set "service=사용자 계정"
+set "diagnosisResult="
+set "status="
 
-:: 사용자 계정 정보 수집
-net user > "%rawPath%\users.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-:: 진단 시작
-set "진단결과=양호"
-set "현황="
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-03] 불필요한 계정 제거 검사 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+echo [양호]: 모든 사용자 계정이 필요하며 활성화되어 있지 않은 경우 >> "!TMP1!"
+echo [취약]: 불필요하게 활성화된 사용자 계정이 있는 경우 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: 사용자 계정 상태 분석
+set "status=양호"
 for /f "skip=4 delims=" %%i in ('type "%rawPath%\users.txt"') do (
     set "line=%%i"
     for %%u in (!line!) do (
         net user %%u > "%rawPath%\user_%%u.txt"
         findstr /C:"Account active               Yes" "%rawPath%\user_%%u.txt" >nul && (
-            set "진단결과=취약"
-            set "현황=!현황!활성화된 계정: %%u; "
+            set "diagnosisResult=취약"
+            set "status=!status!활성화된 계정: %%u; "
         )
     )
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-03.csv"
-echo 계정관리,W-03,상,불필요한 계정 제거,!진단결과!,!현황!,불필요한 계정 제거 >> "%resultPath%\W-03.csv"
+if "!status!"=="양호" (
+    set "status=모든 사용자 계정이 필요하며 활성화되어 있지 않습니다."
+)
 
-:: 스크립트 실행 완료 메시지
-echo 스크립트 실행 완료
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal

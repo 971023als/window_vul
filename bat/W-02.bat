@@ -1,45 +1,49 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for guest account status analysis
+set "csvFile=!resultDir!\Guest_Account_Status.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Status,Diagnosis Result,Remedial Action" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=계정관리"
+set "code=W-02"
+set "riskLevel=상"
+set "diagnosisItem=Guest 계정 상태"
+set "status="
+set "diagnosisResult="
+set "remedialAction=Guest 계정 상태 변경"
 
-:: 로컬 보안 정책 내보내기
-secedit /EXPORT /CFG "%rawPath%\Local_Security_Policy.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-:: 게스트 계정 정보 확인
-net user guest > "%rawPath%\guest_info.txt"
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-02] 게스트 계정 상태 검사 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-:: 진단 시작
-set "진단결과=양호"
-set "현황="
+echo [양호]: 게스트 계정이 비활성화 상태로 유지되고 있으므로 안전합니다. >> "!TMP1!"
+echo [취약]: 게스트 계정이 활성화 되어 있는 위험 상태로, 조치가 필요합니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: 게스트 계정 활성화 여부 확인
 findstr /C:"Account active               Yes" "%rawPath%\guest_info.txt" >nul && (
-    set "진단결과=취약"
-    set "현황=게스트 계정이 활성화 되어 있는 위험 상태로, 조치가 필요합니다."
+    set "diagnosisResult=취약"
+    set "status=게스트 계정이 활성화 되어 있는 위험 상태로, 조치가 필요합니다."
 ) || (
-    set "현황=게스트 계정이 비활성화 상태로 유지되고 있으므로 안전합니다."
+    set "diagnosisResult=양호"
+    set "status=게스트 계정이 비활성화 상태로 유지되고 있으므로 안전합니다."
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-02.csv"
-echo 계정관리,W-02,상,Guest 계정 상태,!진단결과!,!현황!,Guest 계정 상태 변경 >> "%resultPath%\W-02.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!status!","!diagnosisResult!","!remedialAction!" >> "!csvFile!"
 
-:: 스크립트 실행 완료 메시지
-echo 스크립트 실행 완료
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal

@@ -1,43 +1,51 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0result"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for administrator account name check
+set "csvFile=!resultDir!\Admin_Account_Name_Check.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Result,Current Status,Remedial Action" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=계정관리"
+set "code=W-01"
+set "riskLevel=상"
+set "diagnosisItem=Administrator 계정 이름 바꾸기"
+set "result="
+set "diagnosisResult="
+set "remedialAction=Administrator 계정 이름 변경"
 
-:: 시스템 정보 수집
-systeminfo > "%rawPath%\systeminfo.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-:: 로컬 보안 정책 내보내기
-secedit /EXPORT /CFG "%rawPath%\Local_Security_Policy.txt"
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-01] 관리자 계정 이름 변경 점검 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-:: 진단 시작
-set "진단결과=양호"
-set "현황="
+echo [양호]: 관리자 계정 이름이 변경되어 있는 경우 >> "!TMP1!"
+echo [취약]: 관리자 계정의 기본 이름이 변경되지 않았습니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: 관리자 계정 이름 변경 확인
 findstr "NewAdministratorName" "%rawPath%\Local_Security_Policy.txt" >nul || (
-    set "진단결과=취약"
-    set "현황=관리자 계정의 기본 이름이 변경되지 않았습니다."
+    set "result=취약"
+    set "currentStatus=관리자 계정의 기본 이름이 변경되지 않았습니다."
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-01.csv"
-echo 계정관리,W-01,상,Administrator 계정 이름 바꾸기,!진단결과!,!현황!,Administrator 계정 이름 변경 >> "%resultPath%\W-01.csv"
+if not defined result (
+    set "result=양호"
+    set "currentStatus=관리자 계정 이름이 변경되어 있습니다."
+)
 
-:: 스크립트 실행 완료 메시지
-echo 스크립트 실행 완료
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!result!","!currentStatus!","!remedialAction!" >> "!csvFile!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal
