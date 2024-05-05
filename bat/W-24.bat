@@ -1,49 +1,54 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0Window_%COMPUTERNAME%_result"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for IIS CGI status analysis
+set "csvFile=!resultDir!\W-24.csv"
+echo "분류,코드,위험도,진단항목,진단결과,현황,대응방안" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=서비스관리"
+set "code=W-24"
+set "riskLevel=상"
+set "diagnosisItem=IIS CGI 실행 제한"
+set "diagnosisResult="
+set "status="
+set "responsePlan="
 
-:: 보안 정책 파일 내보내기 및 시스템 정보 수집
-secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
-systeminfo > "%rawPath%\systeminfo.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-:: IIS 설정 파일 분석 및 디렉토리 접근 권한 검사
-set "iisConfigFile=%env:WinDir%\System32\Inetsrv\Config\applicationHost.Config"
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-24] IIS CGI 실행 상태 점검 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+:: IIS CGI 설정 분석
+set "iisConfigFile=%WinDir%\System32\Inetsrv\Config\applicationHost.Config"
 if exist "!iisConfigFile!" (
-    type "!iisConfigFile!" > "%rawPath%\iis_setting.txt"
-    for /f "delims=" %%a in ('type "%rawPath%\iis_setting.txt" ^| findstr /I "CGI"') do (
+    type "!iisConfigFile!" > "!resultDir!\iis_setting.txt"
+    for /f "delims=" %%a in ('type "!resultDir!\iis_setting.txt" ^| findstr /I "CGI"') do (
         set "cgiEnabled=%%a"
-        if "!cgiEnabled!"=="<add name=\"CGI-exe\" enabled=\"false\"" (
-            set "cgiStatus=Disabled"
+        if "!cgiEnabled!"=="<add name=\"CGI-exe\" enabled=\"true\"" (
+            set "diagnosisResult=취약"
+            set "status=CGI 실행이 활성화되어 있습니다."
+            set "responsePlan=IIS CGI 실행 제한 조치 필요"
         ) else (
-            set "cgiStatus=Enabled"
+            set "diagnosisResult=양호"
+            set "status=CGI 실행이 비활성화되어 있습니다."
+            set "responsePlan=추가 조치 필요 없음"
         )
     )
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-24.csv"
-if "!cgiStatus!"=="Enabled" (
-    echo 서비스관리,W-24,상,IIS CGI 실행 제한,취약,CGI 실행이 활성화되어 있습니다.,IIS CGI 실행 제한 조치 필요 >> "%resultPath%\W-24.csv"
-) else (
-    echo 서비스관리,W-24,상,IIS CGI 실행 제한,양호,CGI 실행이 비활성화되어 있습니다.,추가 조치 필요 없음 >> "%resultPath%\W-24.csv"
-)
+:: Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!diagnosisResult!","!status!","!responsePlan!" >> "!csvFile!"
 
-:: 스크립트 실행 완료 메시지
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
 echo 스크립트 실행 완료
+
+endlocal
