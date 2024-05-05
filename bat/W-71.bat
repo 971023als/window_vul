@@ -12,16 +12,16 @@ if %errorLevel% neq 0 (
 chcp 437 >nul
 color 0A
 cls
-echo 환경을 초기화 중입니다...
+echo Setting up the environment...
 
 :: Define variables
-set "Category=보안 관리"
-set "Code=W-71"
-set "RiskLevel=높음"
-set "DiagnosticItem=디스크 볼륨 암호화 설정"
-set "DiagnosticResult=양호"
-set "Status=암호화 상태를 확인하는 중..."
-set "Countermeasure=디스크 볼륨 암호화 설정을 통한 데이터 보호 강화"
+set "category=Security Management"
+set "code=W-71"
+set "riskLevel=High"
+set "diagnosisItem=Disk Volume Encryption Settings"
+set "diagnosisResult=Good"
+set "status=Checking encryption status..."
+set "action=Enhance data protection by configuring disk volume encryption"
 
 :: Directory for storing the results
 set "computerName=%COMPUTERNAME%"
@@ -32,18 +32,17 @@ if not exist "%resultDir%" mkdir "%resultDir%"
 for /f "tokens=*" %%i in ('PowerShell -Command "(Get-BitLockerVolume -MountPoint C:).ProtectionStatus"') do set "ProtectionStatus=%%i"
 
 :: Update diagnostic result based on BitLocker status
-if "%ProtectionStatus%"=="1" (
-    set "Status=BitLocker로 C: 드라이브가 암호화되었습니다."
+if "!ProtectionStatus!"=="1" (
+    set "status=The C: drive is encrypted with BitLocker."
 ) else (
-    set "DiagnosticResult=취약"
-    set "Status=BitLocker로 C: 드라이브가 암호화되지 않았습니다."
+    set "diagnosisResult=Vulnerable"
+    set "status=The C: drive is not encrypted with BitLocker."
 )
 
-:: Prepare CSV output
-echo 분류, 코드, 위험도, 진단 항목, 진단 결과, 현황, 대응방안 > "%resultDir%\%Code%.csv"
-echo %Category%, %Code%, %RiskLevel%, %DiagnosticItem%, %DiagnosticResult%, %Status%, %Countermeasure% >> "%resultDir%\%Code%.csv"
+:: Save results to CSV
+echo "Category,Code,Risk Level,Diagnosis Item,Diagnosis Result,Status,Action" > "%resultDir%\%code%.csv"
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!diagnosisResult!","!status!","!action!" >> "%resultDir%\%code%.csv"
 
-echo 진단 결과가 저장되었습니다: %resultDir%\%Code%.csv
-echo 스크립트가 완료되었습니다.
-pause
+echo Audit complete. Results can be found in "%resultDir%\%code%.csv".
 ENDLOCAL
+pause

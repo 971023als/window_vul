@@ -12,38 +12,38 @@ if %errorLevel% neq 0 (
 chcp 437 >nul
 color 2A
 cls
-echo 환경을 초기화 중입니다...
+echo Environment is being initialized...
 
 :: Define variables
-set "분류=보안 관리"
-set "코드=W-70"
-set "위험도=높음"
-set "진단_항목=이동식 미디어 포맷 및 추출 허용"
-set "진단_결과=양호"
-set "현황="
-set "대응방안=이동식 미디어 포맷 및 추출에 대한 적절한 제어"
+set "category=Security Management"
+set "code=W-70"
+set "riskLevel=High"
+set "diagnosisItem=Control over Formatting and Ejecting Removable Media"
+set "diagnosisResult=Good"
+set "status="
+set "action=Proper Control over Formatting and Ejecting Removable Media"
 
 set "computerName=%COMPUTERNAME%"
-set "resultDir=C:\Window_%computerName%_result"
+set "resultDir=C:\Windows_Security_%computerName%_Audit"
 
 :: Ensure the directory exists
 if not exist "%resultDir%" mkdir "%resultDir%"
 
 :: Perform security check (Simulating security check here)
 :: You can replace this with actual commands to check system settings
-set "policyEnabled=1"
-if "!policyEnabled!"=="1" (
-    set "진단_결과=양호"
-    set "현황=디스크 할당 권한 변경은 관리자만 제한적으로 변경할 수 있습니다."
+set "removableMediaPolicyEnabled=1"
+if "!removableMediaPolicyEnabled!"=="1" (
+    set "diagnosisResult=Good"
+    set "status=The policy for formatting and ejecting removable media is properly restricted."
 ) else (
-    set "진단_결과=취약"
-    set "현황=디스크 할당 권한 변경이 관리자만으로 제한되지 않습니다."
+    set "diagnosisResult=Vulnerable"
+    set "status=The policy for formatting and ejecting removable media is not adequately secured."
 )
 
 :: Save results in CSV format
-echo 분류,코드,위험도,진단_항목,진단_결과,현황,대응방안 > "%resultDir%\%코드%.csv"
-echo %분류%,%코드%,%위험도%,%진단_항목%,%진단_결과%,%현황%,%대응방안% >> "%resultDir%\%코드%.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Diagnosis Result,Status,Action" > "%resultDir%\%code%.csv"
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!diagnosisResult!","!status!","!action!" >> "%resultDir%\%code%.csv"
 
-echo 진단 결과가 %resultDir%\%코드%.csv 에 저장되었습니다.
+echo Audit complete. Results can be found in "%resultDir%\%code%.csv".
 ENDLOCAL
 pause

@@ -12,19 +12,19 @@ if %errorLevel% neq 0 (
 chcp 437 >nul
 color 2A
 cls
-echo 환경을 초기화 중입니다...
+echo Initializing environment...
 
 :: Define variables for CSV output
-set "분류=보안 관리"
-set "코드=W-68"
-set "위험도=높음"
-set "진단항목=SAM 계정 및 공유의 익명 열거 허용 안 함"
-set "진단결과=양호"
-set "현황="
-set "대응방안=시스템 정책을 구성하여 익명 열거를 허용하지 않도록 설정"
+set "category=Security Management"
+set "code=W-68"
+set "riskLevel=High"
+set "diagnosisItem=Disallow Anonymous Enumeration of SAM Accounts and Shares"
+set "diagnosisResult=Good"
+set "status="
+set "action=Configure system policy to disallow anonymous enumeration"
 
 set "computerName=%COMPUTERNAME%"
-set "resultDir=C:\Windows_Security_Audit\%computerName%_result"
+set "resultDir=C:\Windows_Security_Audit\%computerName%_results"
 
 :: Create and clean directories
 if exist "%resultDir%" rmdir /s /q "%resultDir%"
@@ -36,16 +36,16 @@ for /f "tokens=2,*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\LS
 
 :: Analyze and record results
 if "!restrictanonymous!"=="1" and "!RestrictAnonymousSAM!"=="1" (
-    set "현황=시스템이 SAM 계정 및 공유의 익명 열거를 제한하는 데 적절하게 구성되었습니다."
+    set "status=The system is properly configured to restrict anonymous enumeration of SAM accounts and shares."
 ) else (
-    set "진단결과=취약"
-    set "현황=시스템이 SAM 계정 및 공유의 익명 열거를 제한하는 데 적절하게 구성되지 않았습니다."
+    set "diagnosisResult=Vulnerable"
+    set "status=The system is not properly configured to restrict anonymous enumeration of SAM accounts and shares."
 )
 
 :: Save results in CSV format
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\%코드%.csv"
-echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\%코드%.csv"
+echo Category,Code,Risk Level,Diagnosis Item,Diagnosis Result,Status,Action > "%resultDir%\%code%.csv"
+echo %category%,%code%,%riskLevel%,%diagnosisItem%,%diagnosisResult%,%status%,%action% >> "%resultDir%\%code%.csv"
 
-echo 진단 결과가 %resultDir%\%코드%.csv 에 저장되었습니다.
+echo Audit complete. Results can be found in %resultDir%\%code%.csv.
 ENDLOCAL
 pause
