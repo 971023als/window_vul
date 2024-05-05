@@ -1,55 +1,56 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: Request Administrator privileges
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: Console environment settings
-chcp 437 >nul
-color 2A
-cls
-echo Setting up the environment...
+REM Define CSV file for hotfix status analysis
+set "csvFile=!resultDir!\Hotfix_Status.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: Set up variables
-set "분류=패치관리"
-set "코드=W-55"
-set "위험도=상"
-set "진단항목=최신 HOT FIX 적용"
-set "진단결과=양호"
-set "현황="
-set "대응방안=최신 HOT FIX 적용"
+REM Define security details
+set "category=패치관리"
+set "code=W-55"
+set "riskLevel=상"
+set "diagnosisItem=최신 HOT FIX 적용"
+set "service=System Patch"
+set "diagnosisResult=양호"
+set "status="
 
-set "computerName=%COMPUTERNAME%"
-set "rawDir=C:\Window_%computerName%_raw"
-set "resultDir=C:\Window_%computerName%_result"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-:: Create and clean directories
-if exist "%rawDir%" rmdir /s /q "%rawDir%"
-if exist "%resultDir%" rmdir /s /q "%resultDir%"
-mkdir "%rawDir%"
-mkdir "%resultDir%"
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-55] 최신 HOT FIX 적용 점검 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-:: Check for hotfix
-PowerShell -Command "
+echo [양호]: 최신 핫픽스가 설치되어 있습니다. >> "!TMP1!"
+echo [취약]: 최신 핫픽스가 설치되어 있지 않습니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+:: Check for hotfix installation (Using PowerShell)
+powershell -Command "& {
     $hotfixId = 'KB3214628'
     $hotfixCheck = Get-HotFix -Id $hotfixId -ErrorAction SilentlyContinue
     if ($hotfixCheck) {
-        'W-55, 양호, 핫픽스 $hotfixId이 설치되어 있습니다., 이는 보안 상태가 양호함을 나타냅니다.' | Out-File '%resultDir%\W-55-Result.csv'
-        echo '양호: 핫픽스 $hotfixId이 설치되어 있습니다.'
+        $status = 'OK: 핫픽스 $hotfixId이 설치되어 있습니다.'
     } else {
-        'W-55, 취약, 핫픽스 $hotfixId이 설치되어 있지 않습니다., 최신 핫픽스를 적용하는 것이 권장됩니다.' | Out-File '%resultDir%\W-55-Result.csv'
-        echo '취약: 핫픽스 $hotfixId이 설치되어 있지 않습니다.'
+        $status = 'WARN: 핫픽스 $hotfixId이 설치되어 있지 않습니다.'
     }
-"
+    \"$status\" | Out-File -FilePath temp.txt;
+}"
+set /p diagnosisResult=<temp.txt
+del temp.txt
 
-:: Save the result in CSV format
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
-echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-echo Audit complete. Results can be found in %resultDir%\AuditResults.csv.
-ENDLOCAL
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo 감사 완료. 결과는 %resultDir%\Hotfix_Status.csv에서 확인하세요.
+echo.
+
+endlocal
 pause
