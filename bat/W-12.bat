@@ -1,44 +1,52 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한으로 실행 확인
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    powershell -Command "Start-Process cmd -ArgumentList '/c %~0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 기본 설정
-set "computerName=%COMPUTERNAME%"
-set "rawPath=C:\Window_%computerName%_raw"
-set "resultPath=C:\Window_%computerName%_result"
+REM Define CSV file for minimum password age policy analysis
+set "csvFile=!resultDir!\Minimum_Password_Age_Policy.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: 디렉토리 초기화 및 생성
-if exist "%rawPath%" rmdir /s /q "%rawPath%"
-if exist "%resultPath%" rmdir /s /q "%resultPath%"
-mkdir "%rawPath%"
-mkdir "%resultPath%"
+REM Define security details
+set "category=계정관리"
+set "code=W-12"
+set "riskLevel=상"
+set "diagnosisItem=패스워드 최소 사용 기간"
+set "service=보안 정책"
+set "diagnosisResult="
+set "status="
 
-:: 보안 정책 파일 내보내기
-secedit /export /cfg "%rawPath%\Local_Security_Policy.txt"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-12] 패스워드 최소 사용 기간 설정 검사 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+echo [양호]: 최소 암호 사용 기간은 설정됨. >> "!TMP1!"
+echo [취약]: 최소 암호 사용 기간이 설정되지 않음. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: 패스워드 최소 사용 기간 설정 검사
-set "진단결과=양호"
-set "현황="
-
 for /f "tokens=2 delims== eol= " %%a in ('findstr /R "MinimumPasswordAge = [0-9]*" "%rawPath%\Local_Security_Policy.txt"') do (
     set "minimumPasswordAge=%%a"
     if !minimumPasswordAge! gtr 0 (
-        set "현황=최소 암호 사용 기간은 설정됨: !minimumPasswordAge!일."
+        set "diagnosisResult=양호"
+        set "status=최소 암호 사용 기간은 설정됨: !minimumPasswordAge!일."
     ) else (
-        set "진단결과=취약"
-        set "현황=최소 암호 사용 기간이 설정되지 않음."
+        set "diagnosisResult=취약"
+        set "status=최소 암호 사용 기간이 설정되지 않음."
     )
 )
 
-:: 진단 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultPath%\W-12.csv"
-echo 계정관리,W-12,상,패스워드최소사용기간,!진단결과!,!현황!,패스워드최소사용기간 설정 >> "%resultPath%\W-12.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-:: 스크립트 실행 완료 메시지
-echo 스크립트 실행 완료
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal
