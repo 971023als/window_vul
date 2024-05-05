@@ -12,16 +12,16 @@ if %errorLevel% neq 0 (
 chcp 437 >nul
 color 2A
 cls
-echo 설정을 초기화 중입니다...
+echo Setting up the environment...
 
-:: Set up directory variables
-set "분류=보안 관리"
-set "코드=W-66"
-set "위험도=높음"
-set "진단항목=원격 시스템 강제 종료"
-set "진단결과=양호"
-set "현황="
-set "대응방안=원격 시스템 종료를 허용하거나 거부할 수 있도록 정책을 적절하게 구성"
+:: Define directory variables
+set "category=Security Management"
+set "code=W-66"
+set "riskLevel=High"
+set "diagnosisItem=Remote System Shutdown Configuration"
+set "diagnosisResult=Good"
+set "status="
+set "action=Configure policies to properly allow or deny remote system shutdown"
 
 set "computerName=%COMPUTERNAME%"
 set "resultDir=C:\Windows_Security_Audit\%computerName%_result"
@@ -37,16 +37,16 @@ for /f "tokens=2,*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Ls
 
 :: Analyze and record results
 if "!permission!"=="S-1-5-32-544" (
-    set "진단결과=취약"
-    set "현황=원격 시스템 종료 권한이 관리자 그룹에만 할당되어 있습니다."
+    set "diagnosisResult=Vulnerable"
+    set "status=Remote shutdown privilege is assigned only to the Administrators group."
 ) else (
-    set "현황=원격 시스템 종료 권한이 안전하게 구성되어 있습니다."
+    set "status=Remote shutdown privilege is configured securely."
 )
 
 :: Save results in CSV format
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\%코드%.csv"
-echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\%코드%.csv"
+echo Category,Code,Risk Level,Diagnosis Item,Diagnosis Result,Status,Action > "%resultDir%\%code%.csv"
+echo %category%,%code%,%riskLevel%,%diagnosisItem%,%diagnosisResult%,%status%,%action% >> "%resultDir%\%code%.csv"
 
-echo 감사가 완료되었습니다. 결과는 %resultDir%\%코드%.csv 파일에서 확인할 수 있습니다.
+echo Audit complete. Results can be found in %resultDir%\%code%.csv.
 ENDLOCAL
 pause
