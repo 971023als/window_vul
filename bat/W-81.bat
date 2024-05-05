@@ -1,37 +1,62 @@
-$json = @{
-    "분류" = "보안관리"
-    "코드" = "W-81"
-    "위험도" = "상"
-    "진단 항목" = "시작프로그램 목록 분석"
-    "진단 결과" = "양호"
-    "현황" = @()
-    "대응방안" = "시작프로그램 목록을 정기적으로 검토하고, 불필요한 프로그램은 제거"
-}
+@echo off
+setlocal enabledelayedexpansion
 
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
-    Exit
-}
+REM Define the directory to store results and create if not exists
+set "resultDir=C:\Window_%COMPUTERNAME%_result"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-$computerName = $env:COMPUTERNAME
-$resultDir = "C:\Window_${computerName}_result"
+REM Define CSV file for Startup Programs Analysis
+set "csvFile=!resultDir!\Startup_Programs.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Diagnosis Result,Status,Countermeasure" > "!csvFile!"
 
-if (-not (Test-Path $resultDir)) {
-    New-Item -Path $resultDir -ItemType Directory | Out-Null
-}
+REM Define security details
+set "category=보안관리"
+set "code=W-81"
+set "riskLevel=상"
+set "diagnosisItem=시작프로그램 목록 분석"
+set "diagnosisResult=양호"
+set "status=현황을 검토 중..."
+set "countermeasure=시작프로그램 목록을 정기적으로 검토하고, 불필요한 프로그램은 제거"
 
-# Analyze Startup Programs
-$startupPrograms = Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location, User
-foreach ($program in $startupPrograms) {
-    $program | Add-Member -NotePropertyName "Status" -NotePropertyValue "Reviewed"
-    $json.현황 += $program.PSObject.Properties.Value | Out-String
-}
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-# Save JSON results
-$jsonFilePath = "$resultDir\W-81.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [!code!] 시작프로그램 목록 분석 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-# Output results to a text file for audit
-$startupPrograms | Format-Table | Out-File "$resultDir\W-81-${computerName}-startup-analysis.txt"
+echo [양호]: 모든 시작프로그램이 필요하고 안전합니다. >> "!TMP1!"
+echo [주의]: 불필요하거나 위험한 시작프로그램이 존재할 수 있습니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-Write-Host "스크립트 실행 완료. 결과는 $resultDir 에 저장되었습니다."
+:: Check for administrative privileges
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo 관리자 권한으로 실행되어야 합니다.
+    powershell -command "Start-Process '%~0' -Verb runAs"
+    exit
+)
+
+:: Analyze Startup Programs using PowerShell
+powershell -Command "& {
+    $startupPrograms = Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location, User
+    $result = @()
+    foreach ($program in $startupPrograms) {
+        $status = 'Reviewed'
+        $result += \"$($program.Name),$($program.Command),$($program.Location),$($program.User),$status\"
+    }
+    $result | Out-File -FilePath '!resultDir!\startup_programs_detail.txt';
+}"
+
+:: Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!diagnosisResult!","!status!","!countermeasure!" >> "!csvFile!"
+
+:: Output detailed startup programs to audit
+type "!resultDir!\startup_programs_detail.txt" >> "!csvFile!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal

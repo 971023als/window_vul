@@ -1,7 +1,35 @@
 @echo off
-setlocal EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한 확인
+REM Define the directory to store results and create if not exists
+set "resultDir=C:\Window_%COMPUTERNAME%_result"
+if not exist "!resultDir!" mkdir "!resultDir!"
+
+REM Define CSV file for Computer Account Password Policy Analysis
+set "csvFile=!resultDir!\Computer_Account_Password_Policy.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
+
+REM Define security details
+set "category=보안관리"
+set "code=W-80"
+set "riskLevel=상"
+set "diagnosisItem=컴퓨터 계정 암호 최대 사용 기간"
+set "service=Password Policy"
+set "diagnosisResult="
+set "status=점검 중..."
+
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [!code!] 컴퓨터 계정 암호 정책 점검 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+echo [양호]: 암호 정책이 적절히 설정되어 있습니다. >> "!TMP1!"
+echo [취약]: 암호 정책이 적절하지 않게 설정되어 있습니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+:: Check for administrative privileges
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo 관리자 권한으로 실행되어야 합니다.
@@ -9,35 +37,24 @@ if %errorlevel% neq 0 (
     exit
 )
 
-:: 환경 설정
-set "computerName=%COMPUTERNAME%"
-set "rawDir=C:\Window_%computerName%_raw"
-set "resultDir=C:\Window_%computerName%_result"
+:: Collect system info
+systeminfo > "!resultDir!\systeminfo.txt"
 
-:: 디렉터리 생성 및 초기화
-if exist "%rawDir%" rmdir /s /q "%rawDir%"
-if exist "%resultDir%" rmdir /s /q "%resultDir%"
-mkdir "%rawDir%"
-mkdir "%resultDir%"
-
-:: 보안 정책 및 시스템 정보 수집
-secedit /export /cfg "%rawDir%\Local_Security_Policy.txt"
-systeminfo > "%rawDir%\systeminfo.txt"
-
-:: NTFS 권한 검사 (기본 경로: C:\)
+:: Check NTFS permissions and password policy using PowerShell
 set "aclCheckPath=C:\"
-set "result=취약"
-set "status=NTFS 권한 설정이 적절하지 않습니다."
-powershell -command "if ((Get-Acl %aclCheckPath%).AccessToString -match 'NT AUTHORITY') {set result=양호; set status=NTFS 권한이 적절히 설정되어 있습니다.;} else {set result=취약; set status=NTFS 권한 설정이 적절하지 않습니다.;}"
+powershell -Command "& {
+    $policy = secedit /export /cfg '%resultDir%\Local_Security_Policy.txt';
+    .\ParseSecurityPolicy '%resultDir%\Local_Security_Policy.txt' | Out-File -FilePath temp.txt;
+}"
+set /p diagnosisResult=<temp.txt
+del temp.txt
 
-:: 결과 CSV 파일 저장
-set "csvFile=%resultDir%\W-80-%computerName%.csv"
-echo 분류,코드,위험도,진단 항목,진단 결과,현황,대응방안 > "%csvFile%"
-echo 보안관리,W-80,상,컴퓨터 계정 암호 최대 사용 기간,!result!,!status!,컴퓨터 계정 암호 최대 사용 기간 >> "%csvFile%"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-:: 결과 요약 파일 생성
-type "%resultDir%\W-80-*" > "%resultDir%\security_audit_summary.txt"
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
 
-:: 정리 작업
-del /f /q "%rawDir%\*"
-echo 스크립트 실행이 완료되었습니다. 결과는 %resultDir%에서 확인할 수 있습니다.
+echo.
+
+endlocal
