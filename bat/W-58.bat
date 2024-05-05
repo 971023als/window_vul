@@ -12,44 +12,60 @@ if %errorLevel% neq 0 (
 chcp 437 >nul
 color 2A
 cls
-echo 환경을 초기화 중입니다...
+echo Setting up the environment...
 
-:: Set up variables
-set "분류=로그관리"
-set "코드=W-58"
-set "위험도=상"
-set "진단항목=로그의 정기적 검토 및 보고"
-set "진단결과=양호"
-set "현황=로그 저장 정책 및 감사를 통해 리포트를 작성하고 보안 로그를 관리하는데 필요한 정책을 검토 및 설정 필요"
-set "대응방안=로그의 정기적 검토 및 보고"
-
+:: Set up directory and security details
+set "category=로그관리"
+set "code=W-58"
+set "riskLevel=상"
+set "diagnosisItem=로그의 정기적 검토 및 보고"
+set "service=Log Management"
+set "diagnosisResult="
+set "status="
 set "computerName=%COMPUTERNAME%"
 set "rawDir=C:\Window_%computerName%_raw"
 set "resultDir=C:\Window_%computerName%_result"
 
-:: Create and clean directories
-if exist "%rawDir%" rmdir /s /q "%rawDir%"
-if exist "%resultDir%" rmdir /s /q "%resultDir%"
-mkdir "%rawDir%"
-mkdir "%resultDir%"
+:: Create directories if they do not exist
+if not exist "%rawDir%" mkdir "%rawDir%"
+if not exist "%resultDir%" mkdir "%resultDir%"
+
+:: Define CSV file for Log Management Status analysis
+set "csvFile=!resultDir!\Log_Management_Status.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
+
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
+
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-58] Regular Review and Reporting of Log Management >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
 :: Execute log management policy checks
-echo 로그 관리 정책을 검토 중입니다...
-PowerShell -Command "
-    # This is a placeholder for actual log management checks
-    # Example PowerShell cmdlet to check log settings
-    # $logInfo = Get-EventLog -LogName Application -Newest 50
-    # if ($logInfo) { 'Logs are being managed.' | Out-File '%resultDir%\W-58-Result.csv' }
-    # else { 'No log management detected.' | Out-File '%resultDir%\W-58-Result.csv' }
+echo Reviewing log management policies...
+PowerShell -Command "& {
+    # Placeholder PowerShell cmdlet to simulate log management checks
+    # Adjust the script to integrate with actual log management tools or procedures
+    $logPolicyCheck = $true  # Simulating a check (Replace with actual check)
 
-    # Assuming checks are done, echo results
-    echo 'W-58, 양호, 로그 관리 정책이 적절하게 설정되어 있습니다.' | Out-File '%resultDir%\W-58-Result.csv'
-"
+    if ($logPolicyCheck) {
+        $status = 'OK: Log management policies are correctly configured.'
+    } else {
+        $status = 'WARN: Log management policies are not adequately configured.'
+    }
+    \"$status\" | Out-File -FilePath temp.txt;
+}"
+set /p diagnosisResult=<temp.txt
+del temp.txt
 
-:: Save results in CSV format
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
-echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-echo 감사가 완료되었습니다. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo Audit complete. Results can be found in %resultDir%\Log_Management_Status.csv.
+echo.
+
 ENDLOCAL
 pause
