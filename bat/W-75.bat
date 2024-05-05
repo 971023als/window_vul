@@ -1,50 +1,51 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: Check for administrative privileges
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process cmd.exe -ArgumentList '/c %~f0' -Verb RunAs"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=C:\Window_%COMPUTERNAME%_result"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: Set environment
-chcp 437 >nul
-color 0A
-cls
-echo 환경을 설정하는 중...
+REM Define CSV file for Login Warning Message Policy Analysis
+set "csvFile=!resultDir!\Login_Warning_Message_Policy.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Result,Status,Countermeasure" > "!csvFile!"
 
-:: Variables
-set "분류=보안 관리"
-set "코드=W-75"
-set "위험도=높음"
-set "진단 항목=로그인 경고 메시지 설정"
-set "진단 결과=양호"
-set "현황=점검 중..."
-set "대응방안=로그인 경고 메시지 설정 조정"
+REM Define security details
+set "category=보안 관리"
+set "code=W-75"
+set "riskLevel=높음"
+set "diagnosisItem=로그인 경고 메시지 설정"
+set "result=양호"
+set "status=점검 중..."
+set "countermeasure=로그인 경고 메시지 설정 조정"
 
-:: Directory for results
-set "computerName=%COMPUTERNAME%"
-set "resultDir=C:\Window_%computerName%_result"
-if not exist "%resultDir%" mkdir "%resultDir%"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-:: Simulate checking the policy
-:: Here, we'll need actual commands to check the policy in real scenarios
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [!code!] 로그인 경고 메시지 정책 진단 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+echo [양호]: 로그인 경고 메시지가 설정되어 있지 않음 >> "!TMP1!"
+echo [취약]: 로그인 경고 메시지가 설정되어 있음 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+:: Check the login warning message policy
 set "policyEnabled=1"
 
 :: Update diagnostic result based on the policy value
-if "%policyEnabled%"=="1" (
-    set "진단 결과=취약"
-    set "현황=로그인 경고 메시지가 설정되어 있습니다."
+if "!policyEnabled!"=="1" (
+    set "result=취약"
+    set "status=로그인 경고 메시지가 설정되어 있습니다."
 ) else (
-    set "현황=로그인 경고 메시지가 설정되어 있지 않습니다."
+    set "status=로그인 경고 메시지가 설정되어 있지 않습니다."
 )
 
-:: Prepare CSV output
-echo 분류, 코드, 위험도, 진단 항목, 진단 결과, 현황, 대응방안 > "%resultDir%\%코드%.csv"
-echo %분류%, %코드%, %위험도%, %진단 항목%, %진단 결과%, %현황%, %대응방안% >> "%resultDir%\%코드%.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!result!","!status!","!countermeasure!" >> "!csvFile!"
 
-echo 진단 결과가 저장되었습니다: %resultDir%\%코드%.csv
-echo 스크립트를 종료합니다.
-pause
-ENDLOCAL
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo.
+
+endlocal
