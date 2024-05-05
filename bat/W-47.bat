@@ -1,67 +1,65 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한 요청
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 콘솔 환경 설정
-chcp 437 >nul
-color 2A
-cls
-echo 환경을 초기화 중입니다...
+REM Define CSV file for SNMP community string complexity audit
+set "csvFile=!resultDir!\SNMP_Community_String_Audit.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: 감사 구성 변수 설정
-set "분류=서비스관리"
-set "코드=W-47"
-set "위험도=상"
-set "진단항목=SNMP 서비스 커뮤니티스트링의 복잡성 설정"
-set "진단결과=양호"
-set "현황="
-set "대응방안=SNMP 서비스 커뮤니티스트링의 복잡성 설정"
+REM Define audit details
+set "category=서비스관리"
+set "code=W-47"
+set "riskLevel=상"
+set "diagnosisItem=SNMP 서비스 커뮤니티스트링의 복잡성 설정"
+set "service=SNMP"
+set "diagnosisResult=양호"
+set "status="
 
-:: 디렉터리 설정
-set "computerName=%COMPUTERNAME%"
-set "rawDir=C:\Window_%computerName%_raw"
-set "resultDir=C:\Window_%computerName%_result"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-if exist "%rawDir%" rmdir /s /q "%rawDir%"
-if exist "%resultDir%" rmdir /s /q "%resultDir%"
-mkdir "%rawDir%"
-mkdir "%resultDir%"
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-47] SNMP 커뮤니티 스트링 설정 점검 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-:: SNMP 서비스 커뮤니티 스트링 검사
-echo SNMP 서비스 커뮤니티 스트링 상태를 검사 중입니다...
-PowerShell -Command "
-    $snmpService = Get-Service -Name 'SNMP' -ErrorAction SilentlyContinue
+echo [양호]: SNMP 커뮤니티 스트링이 적절하게 설정되어 있습니다. >> "!TMP1!"
+echo [경고]: 기본 커뮤니티 스트링을 사용 중입니다. >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+:: SNMP 서비스 커뮤니티 스트링 검사 (PowerShell 사용)
+powershell -Command "& {
+    $snmpService = Get-Service -Name 'SNMP' -ErrorAction SilentlyContinue;
     if ($snmpService -and $snmpService.Status -eq 'Running') {
-        $communities = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities' -ErrorAction SilentlyContinue
+        $communities = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\ValidCommunities' -ErrorAction SilentlyContinue;
         if ($communities) {
-            $defaultStrings = $communities.PSObject.Properties.Name -match 'public|private'
+            $defaultStrings = $communities.PSObject.Properties.Name -match 'public|private';
             if ($defaultStrings) {
-                'W-47, 경고, SNMP 서비스가 실행 중이며 기본 커뮤니티 스트링인 public 또는 private를 사용하고 있습니다., 복잡성 높은 커뮤니티 스트링으로 변경하십시오.' | Out-File '%resultDir%\W-47-Result.csv'
-                echo '경고: 기본 커뮤니티 스트링을 사용 중입니다.'
+                $status = 'WARN: 기본 커뮤니티 스트링(public 또는 private)을 사용 중입니다.'
             } else {
-                'W-47, 양호, SNMP 서비스가 실행 중이지만, 기본 커뮤니티 스트링을 사용하고 있지 않습니다., ' | Out-File '%resultDir%\W-47-Result.csv'
-                echo '양호: 기본 커뮤니티 스트링을 사용하고 있지 않습니다.'
+                $status = 'OK: 복잡성 높은 커뮤니티 스트링을 사용하고 있습니다.'
             }
         } else {
-            'W-47, 경고, SNMP 설정을 검색할 수 없습니다., SNMP 설정을 검토하십시오.' | Out-File '%resultDir%\W-47-Result.csv'
-            echo '경고: SNMP 설정을 검색할 수 없습니다.'
+            $status = 'WARN: SNMP 설정을 검색할 수 없습니다.'
         }
     } else {
-        'W-47, 정보, SNMP 서비스가 실행되지 않고 있습니다., ' | Out-File '%resultDir%\W-47-Result.csv'
-        echo '정보: SNMP 서비스가 실행되지 않고 있습니다.'
+        $status = 'INFO: SNMP 서비스가 실행되지 않고 있습니다.'
     }
-"
+    \"$status\" | Out-File -FilePath temp.txt;
+}"
+set /p status=<temp.txt
+del temp.txt
 
-:: 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
-echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
 
-echo 감사 완료. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
-ENDLOCAL
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo 감사 완료. 결과는 %resultDir%\SNMP_Community_String_Audit.csv에서 확인하세요.
+echo.
+
+endlocal
 pause
