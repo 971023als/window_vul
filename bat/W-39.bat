@@ -1,59 +1,60 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
 
-:: 관리자 권한 요청
-net session >nul 2>&1
-if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process PowerShell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
-    exit
-)
+REM Define the directory to store results and create if not exists
+set "resultDir=%~dp0results"
+if not exist "!resultDir!" mkdir "!resultDir!"
 
-:: 콘솔 환경 설정
-chcp 437 >nul
-color 2A
-cls
-echo 환경을 초기화 중입니다...
+REM Define CSV file for FTP anonymous access audit
+set "csvFile=!resultDir!\FTP_Anonymous_Access_Audit.csv"
+echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
 
-:: 감사 구성 변수 설정
-set "분류=서비스관리"
-set "코드=W-39"
-set "위험도=상"
-set "진단항목=Anonymous FTP 금지"
-set "진단결과=양호"
-set "현황="
-set "대응방안=Anonymous FTP 금지"
+REM Define audit details
+set "category=서비스관리"
+set "code=W-39"
+set "riskLevel=상"
+set "diagnosisItem=Anonymous FTP 금지"
+set "service=FTP"
+set "diagnosisResult=양호"
+set "status="
+set "mitigation=Anonymous FTP 금지"
 
-:: 디렉터리 설정
-set "computerName=%COMPUTERNAME%"
-set "rawDir=C:\Audit_%computerName%_Raw"
-set "resultDir=C:\Audit_%computerName%_Results"
+set "TMP1=%~n0.log"
+type nul > "!TMP1!"
 
-if exist "%rawDir%" rmdir /s /q "%rawDir%"
-if exist "%resultDir%" rmdir /s /q "%resultDir%"
-mkdir "%rawDir%"
-mkdir "%resultDir%"
+echo ------------------------------------------------ >> "!TMP1!"
+echo CODE [W-39] Anonymous FTP 접근 금지 감사 실행 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
 
-:: 진단 로직 실행
-echo FTP 설정을 진단 중입니다...
-PowerShell -Command "
+echo [양호]: Anonymous FTP 접근이 금지되어 있는 경우 >> "!TMP1!"
+echo [취약]: Anonymous FTP 접근이 허용되어 있는 경우 >> "!TMP1!"
+echo ------------------------------------------------ >> "!TMP1!"
+
+:: Anonymous FTP 접근 설정 검사 (PowerShell 사용)
+powershell -Command "& {
     $isSecure = $true
     $ftpSettings = Get-Content '%rawDir%\FTP_Settings.txt' -ErrorAction SilentlyContinue
     if ($ftpSettings -match 'anonymous') {
         $isSecure = $false
     }
     if (!$isSecure) {
-        'W-39, 위험, Anonymous FTP 접근이 허용되어 있습니다.' | Out-File '%resultDir%\W-39-Result.csv'
-        echo '위험: Anonymous FTP 접근이 허용되어 있습니다.'
+        $status = 'WARN: Anonymous FTP 접근이 허용되어 있습니다.'
     } else {
-        'W-39, 양호, Anonymous FTP 접근이 금지되어 있습니다.' | Out-File '%resultDir%\W-39-Result.csv'
-        echo '양호: Anonymous FTP 접근이 금지되어 있습니다.'
+        $status = 'OK: Anonymous FTP 접근이 금지되어 있습니다.'
     }
-"
+    \"$status\" | Out-File -FilePath temp.txt;
+}"
+set /p status=<temp.txt
+del temp.txt
 
-:: 결과 CSV 파일로 저장
-echo 분류,코드,위험도,진단항목,진단결과,현황,대응방안 > "%resultDir%\AuditResults.csv"
-echo %분류%,%코드%,%위험도%,%진단항목%,%진단결과%,%현황%,%대응방안% >> "%resultDir%\AuditResults.csv"
+REM Save results to CSV
+echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!","!mitigation!" >> "!csvFile!"
 
-echo 감사 완료. 결과는 %resultDir%\AuditResults.csv에서 확인하세요.
-ENDLOCAL
+echo ------------------------------------------------ >> "!TMP1!"
+type "!TMP1!"
+
+echo 감사 완료. 결과는 %resultDir%\FTP_Anonymous_Access_Audit.csv에서 확인하세요.
+echo.
+
+endlocal
 pause
