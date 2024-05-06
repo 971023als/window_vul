@@ -1,12 +1,11 @@
-$NewAdminName = "NewAdminAccountName"
+# 새 계정 이름을 설정하세요. 예: NewAdminName
+$newName = "NewAdminName"
 
-# Administrator 계정 이름 변경
-Rename-LocalUser -Name "Administrator" -NewName $NewAdminName
+# 기본 Administrator 계정 이름 가져오기
+$defaultAdminName = (Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True AND SID LIKE 'S-1-5-21-%-500'").Name
 
-# 로컬 보안 정책 설정 변경을 확인
-$secpol = secedit /export /cfg C:\secpol.cfg
-(Get-Content C:\secpol.cfg).Replace('NewAdministratorName', $NewAdminName) | Set-Content C:\secpol.cfg
-secedit /configure /db C:\secpol.sdb /cfg C:\secpol.cfg /quiet
+# 계정 이름 변경
+Rename-LocalUser -Name $defaultAdminName -NewName $newName
 
-# 로그 기록
-Write-Host "Administrator 계정 이름이 변경되었습니다: $NewAdminName"
+# 변경 사항 확인
+Get-LocalUser -Name $newName | Format-List *
