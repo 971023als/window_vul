@@ -6,67 +6,90 @@ import csv
 from pathlib import Path
 import sched
 import time
+import openpyxl
+
+class SecurityDiagnostic:
+    def __init__(self, category, code, risk_level, item, result='양호', status=None, response=None):
+        self.category = category
+        self.code = code
+        self.risk_level = risk_level
+        self.item = item
+        self.result = result
+        self.status = status if status else []
+        self.response = response
+
+    def update_status(self, new_status):
+        self.status.append(new_status)
+        print(f"Updated status for {self.code}: {new_status}")
+
+    def update_result(self, new_result):
+        self.result = new_result
+        print(f"Updated result for {self.code}: {new_result}")
+
+    def display_info(self):
+        print(f"분류: {self.category}, 코드: {self.code}, 위험도: {self.risk_level}, 진단항목: {self.item}, 진단결과: {self.result}, 현황: {self.status}, 대응방안: {self.response}")
 
 # 초기 설정
-web_directory = "C:\Users\User\Documents"
+web_directory = "C:\\Users\\User\\Documents"
 now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 results_path = os.path.join(web_directory, f'results_{now}.json')
 errors_path = os.path.join(web_directory, f'errors_{now}.log')
 csv_path = os.path.join(web_directory, f'results_{now}.csv')
-html_path = os.path.join(web_directory, 'index.html')
 
 # 스케줄러 설정
 scheduler = sched.scheduler(time.time, time.sleep)
 
+def read_diagnostic_data(file_path):
+    wb = openpyxl.load_workbook(file_path)
+    ws = wb.active
+    diagnostics = []
+    start_row = 8
+    for row in ws.iter_rows(min_row=start_row, min_col=1, max_col=6, values_only=True):
+        if row[0] is not None:
+            area = row[0]
+        if row[3] is not None:
+            diagnostic = SecurityDiagnostic(
+                category=area,
+                code=row[3],
+                risk_level=row[1],
+                item=row[2],
+                result=row[5]
+            )
+            diagnostics.append(diagnostic)
+    return diagnostics
+
 def setup_scheduler():
     def run_script():
         print("스케줄된 작업 실행")
-        # 여기에 보안 점검 스크립트를 실행하는 코드를 추가할 수 있습니다.
-    scheduler.enter(86400, 1, run_script)  # 매일 실행
+        execute_security_checks()
+    scheduler.enter(86400, 1, run_script)
     scheduler.run()
 
 def execute_security_checks():
     print("보안 점검 스크립트 실행")
     errors = []
+    diagnostics = read_diagnostic_data('path_to_your_excel_file.xlsx')
     results = []
-    # 예시: 간단한 Python 스크립트를 실행하는 부분
-    for i in range(1, 73):
-        script_path = f'W-{i:02}.py'
+    for diagnostic in diagnostics:
+        script_path = diagnostic.code + '.py'
         if os.path.exists(script_path):
             try:
                 result = subprocess.run(['python', script_path], capture_output=True, text=True)
-                results.append(result.stdout)
+                diagnostic.update_result(result.stdout)
             except Exception as e:
-                errors.append(str(e))
+                errors.append(f"{diagnostic.code}: {str(e)}")
+        results.append(diagnostic)
+
     with open(results_path, 'w') as f:
-        json.dump(results, f)
+        json.dump([diag.__dict__ for diag in diagnostics], f)
     with open(errors_path, 'w') as f:
         f.writelines(errors)
 
-def convert_results():
-    print("결과 변환")
-    with open(results_path, 'r') as json_file, \
-         open(csv_path, 'w', newline='', encoding='utf-8-sig') as csv_file, \
-         open(html_path, 'w', encoding='utf-8') as html_file:
-        data = json.load(json_file)
-        if data:
-            writer = csv.DictWriter(csv_file, fieldnames=data[0].keys())
-            writer.writeheader()
-            writer.writerows(data)
-            html_file.write('<!DOCTYPE html><html><head><title>Security Check Results</title></head><body>')
-            html_file.write('<h1>Security Check Results</h1>')
-            html_file.write('<table>')
-            headers = data[0].keys()
-            html_file.write('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
-            for item in data:
-                row = '<tr>' + ''.join(f'<td>{item[h]}</td>' for h in headers) + '</tr>'
-                html_file.write(row)
-            html_file.write('</table></body></html>')
-
-def main():
-    # setup_scheduler()  # 크론 작업을 스케줄러로 설정
-    execute_security_checks()
-    convert_results()
+    with open(csv_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['Area', 'Item', 'Code', 'Status', 'Result', 'Output'])
+        for diagnostic in results:
+            writer.writerow([diagnostic.category, diagnostic.item, diagnostic.code, diagnostic.risk_level, diagnostic.result, diagnostic.status])
 
 if __name__ == "__main__":
-    main()
+    setup_scheduler()

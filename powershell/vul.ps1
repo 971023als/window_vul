@@ -1,76 +1,69 @@
-# 초기 설정
-$webDirectory = "C:\www\html"
-$now = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
+# 변수 설정
+$webDirectory = "C:\Users\User\Documents"
+$now = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $resultsPath = Join-Path $webDirectory "results_$now.json"
 $errorsPath = Join-Path $webDirectory "errors_$now.log"
 $csvPath = Join-Path $webDirectory "results_$now.csv"
-$htmlPath = Join-Path $webDirectory "index.html"
 
+# 로깅 설정
+function Write-Log {
+    Param ([string]$message)
+    Add-Content -Path "$webDirectory\security_checks.log" -Value "$(Get-Date -Format "yyyy-MM-dd HH:mm:ss"): $message"
+}
+
+# Excel 데이터 읽기
+function Read-DiagnosticData {
+    Param ([string]$filePath)
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $workbook = $excel.Workbooks.Open($filePath)
+    $sheet = $workbook.Sheets.Item(1)
+    $diagnostics = @()
+    $startRow = 8
+    Do {
+        $row = $sheet.Rows.Item($startRow)
+        if ($null -ne $row.Cells.Item(1).Value()) {
+            $area = $row.Cells.Item(1).Text
+        }
+        if ($null -ne $row.Cells.Item(4).Value()) {
+            $diagnostic = @{
+                "Category" = $area
+                "Code" = $row.Cells.Item(4).Text
+                "RiskLevel" = $row.Cells.Item(2).Text
+                "Item" = $row.Cells.Item(3).Text
+                "Result" = $row.Cells.Item(6).Text
+                "Output" = ""
+            }
+            $diagnostics += $diagnostic
+        }
+        $startRow++
+    } While ($null -ne $row.Cells.Item(1).Value())
+    $excel.Quit()
+    return $diagnostics
+}
+
+# 보안 점검 실행
 function Execute-SecurityChecks {
-    Write-Host "보안 점검 스크립트 실행"
+    Write-Log "보안 점검 스크립트 실행"
+    $diagnostics = Read-DiagnosticData -filePath "path_to_your_excel_file.xlsx"
     $errors = @()
-    $results = @()
-    # 예시: Python 스크립트 실행
-    1..72 | ForEach-Object {
-        $scriptPath = "W-$("{0:D2}" -f $_).py"
+    foreach ($diagnostic in $diagnostics) {
+        $scriptPath = Join-Path $webDirectory ($diagnostic.Code + ".py")
         if (Test-Path $scriptPath) {
             try {
-                $result = python $scriptPath
-                $results += $result
+                $output = & python $scriptPath
+                $diagnostic.Output = $output
             } catch {
-                $errors += $_.Exception.Message
+                $error = "$($diagnostic.Code): $_"
+                $errors += $error
+                Write-Log $error
             }
-        } else {
-            $errors += "$scriptPath not found"
         }
     }
-    $results | ConvertTo-Json | Set-Content $resultsPath
-    $errors | Set-Content $errorsPath
+    $diagnostics | ConvertTo-Json | Out-File $resultsPath
+    $errors | Out-File $errorsPath
+    $diagnostics | Export-Csv -Path $csvPath -NoTypeInformation
 }
 
-function Convert-Results {
-    Write-Host "결과 변환"
-    $data = Get-Content $resultsPath | ConvertFrom-Json
-    if ($data) {
-        # CSV 변환
-        $data | Export-Csv $csvPath -NoTypeInformation -Encoding UTF8
-
-        # HTML 변환
-        $htmlContent = @"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Security Check Results</title>
-    <style>
-        table {
-            width: 100%; border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid black; padding: 8px;
-        }
-        th {
-            background-color: #4CAF50; color: white;
-        }
-    </style>
-</head>
-<body>
-    <h1>Security Check Results</h1>
-    <table>
-        <tr><th>$(($data[0].PSObject.Properties.Name -join "</th><th>"))</th></tr>
-$(foreach ($item in $data) {
-    "<tr><td>$($item.PSObject.Properties.Value -join "</td><td>")</td></tr>"
-})
-    </table>
-</body>
-</html>
-"@
-        $htmlContent | Set-Content $htmlPath
-    }
-}
-
-function Main {
-    Execute-SecurityChecks
-    Convert-Results
-}
-
-Main
+# 메인 실행
+Execute-SecurityChecks
