@@ -1,57 +1,29 @@
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-06"
-    위험도 = "상"
-    진단항목 = "관리자 그룹에 최소한의 사용자 포함"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "관리자 그룹에 최소한의 사용자 포함"
-}
+# 운영 체제 버전 확인
+$osVersion = (Get-WmiObject -Class Win32_OperatingSystem).Version
 
-# Check for Administrator privileges
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "관리자 권한을 요청하는 중..."
-    $currentScript = $MyInvocation.MyCommand.Definition
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$currentScript`"" -Verb RunAs
-    Exit
-}
+# NT 계열 운영 체제 버전
+$ntVersions = @("4.0", "5.0", "5.1", "5.2", "6.0")
 
-# Set console preferences
-[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# NT 계열인지 확인
+if ($ntVersions -contains $osVersion) {
+    # "해독 가능한 암호화를 사용하여 암호 저장" 정책 설정
+    $policyName = "ClearTextPassword"
+    $policyValue = 0  # 0은 '사용 안 함', 1은 '사용'
 
-# Initial setup
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
+    # secedit를 사용하여 설정을 업데이트
+    $secfilePath = "$env:TEMP\secfile.inf"
+    $cfgPath = "$env:TEMP\cfgfile.inf"
 
-# Get installation path
-"$installPath" | Out-File "$rawDir\install_path.txt"
+    # 현재 설정 추출
+    secedit /export /cfg $secfilePath
 
-# Collect system information
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+    # 설정 파일 읽기 및 수정
+    (Get-Content $secfilePath) -replace "$policyName =.*", "$policyName = $policyValue" | Set-Content $cfgPath
 
-# IIS Configuration
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Get-Content "$env:WINDOWS\system32\inetsrv\MetaBase.xml" | Out-File "$rawDir\iis_setting.txt" -Append
+    # 설정 적용
+    secedit /configure /db secedit.sdb /cfg $cfgPath
 
-# Check for "test" or "Guest" in Administrators group
-$administrators = net localgroup Administrators
-$nonCompliantAccounts = $administrators | Where-Object { $_ -match "test|Guest" }
-
-# 관리자 그룹 멤버십 검사 후 JSON 객체 업데이트
-if ($nonCompliantAccounts) {
-    $json.진단결과 = "취약"
-    $json.현황 += "관리자 그룹에 임시 또는 게스트 계정('test', 'Guest')이 포함되어 있습니다."
+    Write-Host "정책 '$policyName'이 '사용 안 함'으로 설정되었습니다."
 } else {
-    $json.현황 += "관리자 그룹에 임시 또는 게스트 계정이 포함되지 않아 보안 정책을 준수합니다."
+    Write-Host "이 스크립트는 NT 계열 Windows에서만 실행됩니다. 현재 OS 버전: $osVersion"
 }
-
-# JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-06.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
