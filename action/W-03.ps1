@@ -1,61 +1,28 @@
-# JSON 객체 초기화
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-03"
-    위험도 = "상"
-    진단항목 = "불필요한 계정 제거"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "불필요한 계정 제거"
-}
+# 운영 체제 버전 확인
+$osVersion = (Get-WmiObject -Class Win32_OperatingSystem).Version
 
-# 관리자 권한 확인 및 요청
-function Test-Admin {
-    $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-    return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
+# NT 계열 운영 체제 버전
+$ntVersions = @("4.0", "5.0", "5.1", "5.2", "6.0")
 
-if (-not (Test-Admin)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-    exit
-}
+# NT 계열인지 확인
+if ($ntVersions -contains $osVersion) {
+    # 사용자 계정 목록 불러오기
+    $users = Get-LocalUser
 
-# 콘솔 환경 설정
-[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
-Write-Host "------------------------------------------설정---------------------------------------"
+    # 삭제하려는 계정의 이름을 배열로 설정
+    $unnecessaryAccounts = @("exampleUser1", "exampleUser2")  # 수정 필요
 
-$computerName = $env:COMPUTERNAME
-$rawPath = "C:\Window_${computerName}_raw"
-$resultPath = "C:\Window_${computerName}_result"
+    # 불필요한 계정 찾아서 처리
+    foreach ($user in $users) {
+        if ($user.Name -in $unnecessaryAccounts) {
+            # 계정 비활성화 (삭제 대신 비활성화를 원하는 경우 이 줄의 주석을 해제하고 다음 줄을 주석 처리하세요)
+            # Disable-LocalUser -Name $user.Name
 
-# 기존 폴더 및 파일 제거 및 새 폴더 생성
-Remove-Item -Path $rawPath, $resultPath -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawPath, $resultPath -ItemType Directory | Out-Null
-
-# 보안 정책, 시스템 정보 등 수집
-secedit /export /cfg "$rawPath\Local_Security_Policy.txt"
-New-Item -Path "$rawPath\compare.txt" -ItemType File -Force
-Get-Location > "$rawPath\install_path.txt"
-systeminfo > "$rawPath\systeminfo.txt"
-
-# IIS 설정 정보 수집
-$applicationHostConfig = Get-Content "$env:WINDIR\System32\inetsrv\config\applicationHost.Config"
-$applicationHostConfig > "$rawPath\iis_setting.txt"
-
-# 사용자 계정 정보 수집 및 분석
-$users = (net user | Select-String -Pattern "\w+" -AllMatches).Matches.Value
-foreach ($user in $users) {
-    $userInfo = net user $user
-    $isActive = $userInfo -match "계정 활성 상태\s+.*Yes"
-    if ($isActive) {
-        $json.진단결과 = "취약"
-        $json.현황 += "활성화된 계정: $user"
-        "$userInfo" | Out-File -FilePath "$rawPath\user_$user.txt"
+            # 계정 삭제
+            Remove-LocalUser -Name $user.Name
+            Write-Host "계정이 삭제되었습니다: $($user.Name)"
+        }
     }
+} else {
+    Write-Host "이 스크립트는 NT 계열 Windows에서만 실행됩니다. 현재 OS 버전: $osVersion"
 }
-
-# JSON 결과를 파일로 저장
-$jsonFilePath = "$resultPath\W-03.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-
-Write-Host "스크립트 실행 완료"

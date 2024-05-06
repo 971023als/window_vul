@@ -1,23 +1,29 @@
-function Disable-GuestAccount {
-    param (
-        [string] $ComputerName = $env:COMPUTERNAME  # 기본값은 로컬 컴퓨터
-    )
-    try {
-        # 로컬 또는 원격 컴퓨터의 게스트 계정 객체 가져오기
-        $guestAccount = Get-LocalUser -Name "Guest" -ComputerName $ComputerName
-        
-        # 계정 비활성화
-        $guestAccount | Disable-LocalUser -ComputerName $ComputerName
+# 운영 체제 버전 확인
+$osVersion = (Get-WmiObject -Class Win32_OperatingSystem).Version
 
-        # 결과 로깅
-        Write-Output "Guest account on $ComputerName has been disabled successfully."
-    } catch {
-        Write-Output "Error disabling guest account on $ComputerName: $_"
+# NT 계열 운영 체제 버전
+$ntVersions = @("4.0", "5.0", "5.1", "5.2", "6.0")
+
+# Guest 계정 이름 가져오기
+$guestAccount = Get-LocalUser -Name "Guest" -ErrorAction SilentlyContinue
+
+# NT 계열 확인 및 Guest 계정 비활성화
+if ($guestAccount -and $ntVersions -contains $osVersion) {
+    # Guest 계정이 활성화 되어 있는지 확인
+    if ($guestAccount.Enabled) {
+        # Guest 계정 비활성화
+        Disable-LocalUser -Name "Guest"
+        Write-Host "Guest 계정이 비활성화 되었습니다."
+    } else {
+        Write-Host "Guest 계정은 이미 비활성화 상태입니다."
     }
+} else {
+    Write-Host "이 스크립트는 NT 계열 Windows에서만 실행됩니다. 현재 OS 버전: $osVersion"
 }
 
-# 로컬 컴퓨터에서 실행
-Disable-GuestAccount
-
-# 원격 컴퓨터에서 실행하는 경우
-# Disable-GuestAccount -ComputerName "RemoteComputerName"
+# 변경 사항 확인
+if ($guestAccount) {
+    Get-LocalUser -Name "Guest" | Format-List *
+} else {
+    Write-Host "Guest 계정을 찾을 수 없습니다."
+}
