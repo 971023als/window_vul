@@ -1,82 +1,107 @@
 import os
 import json
 import subprocess
+import ctypes
 from pathlib import Path
-import shutil
 
-# JSON 객체 초기화
+# ---------------------------------
+# 관리자 권한 확인
+# ---------------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# ---------------------------------
+# 기본 경로 생성
+# ---------------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------
+# 결과 JSON 구조
+# ---------------------------------
 diagnosis_result = {
     "분류": "서비스관리",
     "코드": "W-19",
     "위험도": "상",
-    "진단항목": "공유 권한 및 사용자 그룹 설정",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "진단항목": "불필요한 IIS 서비스 구동 점검",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "공유 권한 및 사용자 그룹 설정"
+    "대응방안": "불필요한 IIS 서비스 중지 또는 제거"
 }
 
-# 관리자 권한 확인 및 요청
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+# ---------------------------------
+# IIS 관련 서비스 목록
+# ---------------------------------
+iis_services = {
+    "W3SVC": "웹 서비스",
+    "IISADMIN": "IIS Admin",
+    "MSFTPSVC": "FTP 서비스"
+}
 
-# 초기 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_dir = Path(f"C:\\Window_{computer_name}_raw")
-result_dir = Path(f"C:\\Window_{computer_name}_result")
+running_services = []
+installed_services = []
 
-# 디렉터리 초기화
-shutil.rmtree(raw_dir, ignore_errors=True)
-shutil.rmtree(result_dir, ignore_errors=True)
-raw_dir.mkdir(parents=True, exist_ok=True)
-result_dir.mkdir(parents=True, exist_ok=True)
+# ---------------------------------
+# 서비스 점검
+# ---------------------------------
+for svc, desc in iis_services.items():
+    try:
+        query = subprocess.run(f'sc query "{svc}"', shell=True, capture_output=True, text=True)
+        output = query.stdout.lower()
 
-# 보안 설정 및 시스템 정보 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
-(raw_dir / 'compare.txt').touch()
-with open(raw_dir / 'install_path.txt', 'w') as f:
-    f.write(str(raw_dir))
-with open(raw_dir / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+        if "does not exist" in output or output.strip() == "":
+            continue
 
-# IIS 설정 분석
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-with open(application_host_config) as file:
-    content = file.read()
-with open(raw_dir / 'iis_setting.txt', 'w') as file:
-    file.write(content)
+        installed_services.append(desc)
 
-# 공유 폴더 접근 권한 분석
-try:
-    share_info_output = subprocess.check_output('net share', text=True)
-    shares = [line.split() for line in share_info_output.splitlines() if line and "$" not in line and "command" not in line and "-" not in line]
-    permission_details = []
+        if "running" in output:
+            running_services.append(desc)
 
-    for share in shares:
-        if len(share) > 1:
-            share_path = share[1]
-            acl_output = subprocess.check_output(f'cacls {share_path}', text=True)
-            permission_details.append(acl_output)
-
-    # 결과를 파일로 저장
-    with open(raw_dir / 'W-19.txt', 'w') as f:
-        f.writelines('\n'.join(permission_details))
-
-    # Update the JSON object based on the shared folder permissions analysis
-    if "Everyone" in str(permission_details):
-        diagnosis_result["현황"].append("문제 발견: 공유 폴더 설정을 점검하거나 필요한 폴더만 공유하며, 공유 설정에서 Everyone 그룹의 접근을 제한하세요.")
+    except Exception as e:
+        diagnosis_result["현황"].append(str(e))
         diagnosis_result["진단결과"] = "취약"
-    else:
-        diagnosis_result["현황"].append("문제 없음: 공유 폴더 보안 설정이 적절하며, Everyone 그룹의 접근이 제한되어 있습니다.")
-        diagnosis_result["진단결과"] = "양호"
 
-except subprocess.CalledProcessError as e:
-    print("Error accessing share information:", e)
+# ---------------------------------
+# RAW 저장
+# ---------------------------------
+with open(raw_path / "W-19_iis_check.txt", "w", encoding="utf-8") as f:
+    for svc in iis_services:
+        result = subprocess.run(f'sc query "{svc}"', shell=True, capture_output=True, text=True)
+        f.write(f"\n===== {svc} =====\n")
+        f.write(result.stdout)
 
-# Save the JSON results to a file
-json_file_path = result_dir / 'W-19.json'
-with open(json_file_path, 'w') as file:
-    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+# ---------------------------------
+# 결과 판정
+# ---------------------------------
+if not installed_services:
+    diagnosis_result["진단결과"] = "양호"
+    diagnosis_result["현황"].append("IIS 서비스 미설치")
 
-print("스크립트 실행 완료")
+elif running_services:
+    diagnosis_result["진단결과"] = "취약"
+    diagnosis_result["현황"].append(f"IIS 서비스 실행중: {', '.join(running_services)}")
+
+else:
+    diagnosis_result["진단결과"] = "양호"
+    diagnosis_result["현황"].append("IIS 설치되어 있으나 서비스 중지 상태")
+
+# ---------------------------------
+# 결과 저장
+# ---------------------------------
+with open(result_path / "W-19.json", "w", encoding="utf-8") as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("W-19 점검 완료")
+print(f"결과 위치: {result_path}\\W-19.json")
