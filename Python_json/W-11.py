@@ -1,71 +1,101 @@
 import os
 import json
 import subprocess
+import ctypes
 from pathlib import Path
-import shutil
-import re
 
-# JSON 객체 초기화
+# -----------------------------
+# 관리자 권한 확인
+# -----------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# -----------------------------
+# 기본 경로
+# -----------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# -----------------------------
+# 결과 JSON
+# -----------------------------
 diagnosis_result = {
     "분류": "계정관리",
     "코드": "W-11",
-    "위험도": "상",
-    "진단항목": "패스워드 최대 사용 기간",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "위험도": "중",
+    "진단항목": "로컬 로그온 허용 계정 최소화",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "패스워드 최대 사용 기간 설정"
+    "대응방안": "Administrators, IUSR 외 계정 제거"
 }
 
-# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+# -----------------------------
+# 보안정책 export
+# -----------------------------
+policy_file = raw_path / "secpol.cfg"
 
-# 변수 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_dir = Path(f"C:\\Window_{computer_name}_raw")
-result_dir = Path(f"C:\\Window_{computer_name}_result")
+subprocess.run([
+    "secedit", "/export",
+    "/cfg", str(policy_file)
+], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-# 디렉터리 초기화
-shutil.rmtree(raw_dir, ignore_errors=True)
-shutil.rmtree(result_dir, ignore_errors=True)
-raw_dir.mkdir(parents=True, exist_ok=True)
-result_dir.mkdir(parents=True, exist_ok=True)
+# -----------------------------
+# 정책 파싱
+# -----------------------------
+allowed_accounts = []
 
-# 기본 정보 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
-(raw_dir / 'compare.txt').touch()
-with open(raw_dir / 'install_path.txt', 'w') as f:
-    f.write(str(raw_dir))
+try:
+    with open(policy_file, "r", encoding="utf-16", errors="ignore") as f:
+        for line in f:
+            if "SeInteractiveLogonRight" in line:
+                parts = line.strip().split("=")
+                if len(parts) > 1:
+                    accounts = parts[1].split(",")
+                    allowed_accounts = [a.strip() for a in accounts]
 
-with open(raw_dir / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+    diagnosis_result["현황"].append(f"로컬 로그온 허용 계정: {allowed_accounts}")
 
-# IIS 설정 파일 읽기
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-with open(application_host_config) as file:
-    content = file.read()
-with open(raw_dir / 'iis_setting.txt', 'w') as file:
-    file.write(content)
+    weak_accounts = []
 
-# 최대암호사용기간 분석
-with open(raw_dir / "Local_Security_Policy.txt") as file:
-    local_security_policy = file.read()
-    match = re.search(r"MaximumPasswordAge\s*=\s*(\d+)", local_security_policy)
-    if match:
-        maximum_password_age = int(match.group(1))
-        if maximum_password_age <= 90:
-            diagnosis_result["현황"].append(f"최대 암호 사용 기간 정책이 준수됩니다. {maximum_password_age}일로 설정됨.")
+    for acc in allowed_accounts:
+        acc_lower = acc.lower()
+
+        if "administrators" in acc_lower:
+            continue
+        elif "iusr" in acc_lower:
+            continue
+        elif acc == "":
+            continue
         else:
-            diagnosis_result["진단결과"] = "취약"
-            diagnosis_result["현황"].append(f"최대 암호 사용 기간 정책이 준수되지 않습니다. {maximum_password_age}일로 설정됨.")
+            weak_accounts.append(acc)
+
+    if weak_accounts:
+        diagnosis_result["진단결과"] = "취약"
+        diagnosis_result["현황"].append(f"불필요 계정 존재: {weak_accounts}")
     else:
-        diagnosis_result["현황"].append("최대암호사용기간 정책 정보를 찾을 수 없습니다.")
+        diagnosis_result["현황"].append("허용된 계정만 존재")
 
-# JSON 결과를 파일로 저장
-json_file_path = result_dir / 'W-11.json'
-with open(json_file_path, 'w') as file:
-    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+except Exception as e:
+    diagnosis_result["진단결과"] = "오류"
+    diagnosis_result["현황"].append(str(e))
 
-print("스크립트 실행 완료")
+# -----------------------------
+# 결과 저장
+# -----------------------------
+with open(result_path / "W-11.json", "w", encoding="utf-8") as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("W-11 점검 완료")
+print(f"결과 위치: {result_path}\\W-11.json")
