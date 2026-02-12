@@ -1,66 +1,112 @@
 import os
 import json
 import subprocess
+import ctypes
+import winreg
 from pathlib import Path
-import shutil
-import re
 
-# JSON 객체 초기화
+# ---------------------------------
+# 관리자 권한 확인
+# ---------------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# ---------------------------------
+# 기본 경로
+# ---------------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------
+# 결과 JSON
+# ---------------------------------
 diagnosis_result = {
-    "분류": "계정관리",
+    "분류": "서비스관리",
     "코드": "W-17",
     "위험도": "상",
-    "진단항목": "콘솔 로그온 시 로컬 계정에서 빈 암호 사용 제한",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "진단항목": "하드디스크 기본 공유 제거",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "콘솔 로그온 시 로컬 계정에서 빈 암호 사용 제한"
+    "대응방안": "기본 공유 제거 및 AutoShareServer 레지스트리 0 설정"
 }
 
-# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+# ---------------------------------
+# 1️⃣ 레지스트리 AutoShareServer 확인
+# ---------------------------------
+reg_vuln = False
 
-# 초기 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_dir = Path(f"C:\\Window_{computer_name}_raw")
-result_dir = Path(f"C:\\Window_{computer_name}_result")
+try:
+    reg_path = r"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"
 
-# 디렉터리 초기화
-shutil.rmtree(raw_dir, ignore_errors=True)
-shutil.rmtree(result_dir, ignore_errors=True)
-raw_dir.mkdir(parents=True, exist_ok=True)
-result_dir.mkdir(parents=True, exist_ok=True)
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+        value, regtype = winreg.QueryValueEx(key, "AutoShareServer")
 
-# 보안 설정 및 시스템 정보 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
-(raw_dir / 'compare.txt').touch()
-with open(raw_dir / 'install_path.txt', 'w') as f:
-    f.write(str(raw_dir))
-with open(raw_dir / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+        if value != 0:
+            reg_vuln = True
+            diagnosis_result["현황"].append(f"AutoShareServer 값 = {value} (1이면 취약)")
+        else:
+            diagnosis_result["현황"].append("AutoShareServer 값 = 0 (양호)")
 
-# IIS 설정 분석
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-with open(application_host_config) as file:
-    content = file.read()
-with open(raw_dir / 'iis_setting.txt', 'w') as file:
-    file.write(content)
+except FileNotFoundError:
+    diagnosis_result["현황"].append("AutoShareServer 레지스트리 없음 (기본값 취약 가능)")
+    reg_vuln = True
 
-# "LimitBlankPasswordUse" 보안 정책 감사
-with open(raw_dir / "Local_Security_Policy.txt") as file:
-    local_security_policy = file.read()
-    if "LimitBlankPasswordUse = 1" in local_security_policy:
-        diagnosis_result["현황"].append("준수 확인됨: 'LimitBlankPasswordUse' 정책이 올바르게 적용됨.")
-        diagnosis_result["진단결과"] = "양호"
+# ---------------------------------
+# 2️⃣ 기본 공유 존재 여부 확인
+# ---------------------------------
+try:
+    result = subprocess.run("net share", shell=True, capture_output=True, text=True)
+
+    with open(raw_path / "W-17_share.txt", "w", encoding="utf-8") as f:
+        f.write(result.stdout)
+
+    lines = result.stdout.splitlines()
+
+    default_shares = []
+    for line in lines:
+        if "$" in line:
+            parts = line.split()
+            if parts:
+                share = parts[0]
+                if share not in ["IPC$"]:
+                    default_shares.append(share)
+
+    if default_shares:
+        diagnosis_result["현황"].append(f"기본 공유 존재: {', '.join(default_shares)}")
+        share_vuln = True
     else:
-        diagnosis_result["진단결과"] = "취약"
-        diagnosis_result["현황"].append("준수하지 않음 감지됨: 'LimitBlankPasswordUse' 정책이 올바르게 적용되지 않음.")
+        diagnosis_result["현황"].append("불필요한 기본 공유 없음")
+        share_vuln = False
 
-# Save the JSON results to a file
-json_file_path = result_dir / 'W-17.json'
-with open(json_file_path, 'w') as file:
-    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+except Exception as e:
+    diagnosis_result["현황"].append(str(e))
+    share_vuln = True
 
-print("스크립트 실행 완료")
+# ---------------------------------
+# 3️⃣ 최종 판정
+# ---------------------------------
+if reg_vuln or share_vuln:
+    diagnosis_result["진단결과"] = "취약"
+else:
+    diagnosis_result["진단결과"] = "양호"
+
+# ---------------------------------
+# 결과 저장
+# ---------------------------------
+with open(result_path / "W-17.json", "w", encoding="utf-8") as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("W-17 점검 완료")
+print(f"결과 위치: {result_path}\\W-17.json")
