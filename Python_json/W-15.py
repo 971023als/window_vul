@@ -1,65 +1,91 @@
 import os
 import json
 import subprocess
+import ctypes
 from pathlib import Path
-import shutil
 
-# JSON 객체 초기화
+# -----------------------------
+# 관리자 권한 체크
+# -----------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# -----------------------------
+# 기본 경로
+# -----------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# -----------------------------
+# 결과 JSON
+# -----------------------------
 diagnosis_result = {
-    "분류": "계정관리",
+    "분류": "서비스관리",
     "코드": "W-15",
     "위험도": "상",
-    "진단항목": "익명 SID/이름 변환 허용",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "진단항목": "사용자 개인키 사용 시 암호 입력",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "익명 SID/이름 변환 허용"
+    "대응방안": "강력한 키 보호: 키 사용할 때마다 암호 입력 설정"
 }
 
-# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+# -----------------------------
+# 레지스트리 조회
+# -----------------------------
+try:
+    reg_cmd = r'reg query "HKLM\SOFTWARE\Policies\Microsoft\Cryptography" /v ForceKeyProtection'
+    result = subprocess.run(reg_cmd, shell=True, capture_output=True, text=True)
 
-# 초기 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_dir = Path(f"C:\\Window_{computer_name}_raw")
-result_dir = Path(f"C:\\Window_{computer_name}_result")
+    with open(raw_path / "W-15_reg.txt", "w", encoding="utf-8") as f:
+        f.write(result.stdout + result.stderr)
 
-# 디렉터리 초기화
-shutil.rmtree(raw_dir, ignore_errors=True)
-shutil.rmtree(result_dir, ignore_errors=True)
-raw_dir.mkdir(parents=True, exist_ok=True)
-result_dir.mkdir(parents=True, exist_ok=True)
-
-# 보안 설정 및 시스템 정보 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
-(raw_dir / 'compare.txt').touch()
-with open(raw_dir / 'install_path.txt', 'w') as f:
-    f.write(str(raw_dir))
-with open(raw_dir / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
-
-# IIS 설정 분석
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-with open(application_host_config) as file:
-    content = file.read()
-with open(raw_dir / 'iis_setting.txt', 'w') as file:
-    file.write(content)
-
-# LSA 익명 이름 조회 설정의 보안 정책 감사
-with open(raw_dir / "Local_Security_Policy.txt") as file:
-    local_security_policy = file.read()
-    if "LSAAnonymousNameLookup = 0" in local_security_policy:
-        diagnosis_result["현황"].append("준수 상태 감지됨: LSA 익명 이름 조회가 올바르게 비활성화되어 있습니다.")
-        diagnosis_result["진단결과"] = "양호"
-    else:
+    if "ForceKeyProtection" not in result.stdout:
         diagnosis_result["진단결과"] = "취약"
-        diagnosis_result["현황"].append("비준수 상태 감지됨: LSA 익명 이름 조회가 활성화되어 있습니다.")
+        diagnosis_result["현황"].append("강력한 키 보호 정책이 설정되지 않음")
 
-# Save the JSON results to a file
-json_file_path = result_dir / 'W-15.json'
-with open(json_file_path, 'w') as file:
-    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+    else:
+        value_line = [line for line in result.stdout.splitlines() if "ForceKeyProtection" in line]
 
-print("스크립트 실행 완료")
+        if value_line:
+            value = value_line[0].split()[-1]
+
+            # 16진 → 10진 변환
+            try:
+                int_value = int(value, 16)
+            except:
+                int_value = int(value)
+
+            if int_value == 2:
+                diagnosis_result["진단결과"] = "양호"
+                diagnosis_result["현황"].append("개인키 사용 시 매번 암호 입력 설정됨")
+            else:
+                diagnosis_result["진단결과"] = "취약"
+                diagnosis_result["현황"].append(f"현재 설정값: {int_value} (매번 암호 입력 아님)")
+        else:
+            diagnosis_result["진단결과"] = "취약"
+            diagnosis_result["현황"].append("레지스트리 값 확인 불가")
+
+except Exception as e:
+    diagnosis_result["진단결과"] = "오류"
+    diagnosis_result["현황"].append(str(e))
+
+# -----------------------------
+# 결과 저장
+# -----------------------------
+with open(result_path / "W-15.json", "w", encoding="utf-8") as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("W-15 점검 완료")
+print(f"결과 위치: {result_path}\\W-15.json")
