@@ -2,64 +2,92 @@ import os
 import json
 import shutil
 import subprocess
+import ctypes
 from pathlib import Path
 
-# 진단 결과 JSON 객체
+# ---------------------------
+# 관리자 권한 체크 (Windows)
+# ---------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# ---------------------------
+# 기본 정보
+# ---------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+# 기존 폴더 삭제
+shutil.rmtree(raw_path, ignore_errors=True)
+shutil.rmtree(result_path, ignore_errors=True)
+
+# 폴더 생성
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------
+# 진단 결과 JSON 구조
+# ---------------------------
 diagnosis_result = {
     "분류": "계정관리",
     "코드": "W-01",
     "위험도": "상",
-    "진단항목": "Administrator 계정 이름 바꾸기",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "진단항목": "Administrator 계정 이름 변경",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "Administrator 계정 이름 변경"
+    "대응방안": "기본 Administrator 계정명 변경 및 복잡한 비밀번호 적용"
 }
 
-# 관리자 권한 확인 및 스크립트 재실행 (파이썬에서는 직접적인 권한 상승 방법 제공하지 않음)
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
-
-# 기본 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_path = Path(f"C:\\Window_{computer_name}_raw")
-result_path = Path(f"C:\\Window_{computer_name}_result")
-
-# 이전 파일 및 폴더 삭제
-shutil.rmtree(raw_path, ignore_errors=True)
-shutil.rmtree(result_path, ignore_errors=True)
-
-# 새 폴더 생성
-raw_path.mkdir(parents=True, exist_ok=True)
-result_path.mkdir(parents=True, exist_ok=True)
-
-# 로컬 보안 정책 내보내기
-subprocess.run(['secedit', '/EXPORT', '/CFG', str(raw_path / "Local_Security_Policy.txt")])
-
+# ---------------------------
 # 시스템 정보 수집
-with open(raw_path / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+# ---------------------------
+with open(raw_path / "systeminfo.txt", "w", encoding="utf-8") as f:
+    subprocess.run("systeminfo", stdout=f, shell=True)
 
-# IIS 설정 수집
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-shutil.copy(application_host_config, raw_path / 'iis_setting.txt')
+# 로컬 보안 정책 export
+subprocess.run(f'secedit /export /cfg "{raw_path}\\secpol.txt"', shell=True)
 
-# 관리자 계정 이름 변경 여부 확인
-local_security_policy = raw_path / 'Local_Security_Policy.txt'
+# ---------------------------
+# Administrator 실제 이름 확인 (SID 기반)
+# ---------------------------
 try:
-    with open(local_security_policy, 'r') as file:
-        if "NewAdministratorName" not in file.read():
-            diagnosis_result["진단결과"] = "취약"
-            diagnosis_result["현황"].append("관리자 계정의 기본 이름이 변경되지 않았습니다.")
-        else:
-            diagnosis_result["현황"].append("관리자 계정의 기본 이름이 변경되었습니다.")
-except FileNotFoundError:
-    print("보안 정책 파일을 찾을 수 없습니다.")
+    cmd = 'wmic useraccount where "sid like \'S-1-5-21%%-500\'" get name'
+    output = subprocess.check_output(cmd, shell=True, text=True)
 
-# 진단 결과 JSON 파일로 저장
-with open(result_path / 'W-01.json', 'w') as f:
+    lines = [l.strip() for l in output.split("\n") if l.strip() and "Name" not in l]
+
+    if not lines:
+        diagnosis_result["진단결과"] = "N/A"
+        diagnosis_result["현황"].append("Administrator 계정 확인 실패")
+
+    else:
+        admin_name = lines[0]
+        diagnosis_result["현황"].append(f"현재 관리자 계정명: {admin_name}")
+
+        if admin_name.lower() == "administrator":
+            diagnosis_result["진단결과"] = "취약"
+            diagnosis_result["현황"].append("기본 Administrator 이름 그대로 사용중")
+        else:
+            diagnosis_result["현황"].append("Administrator 계정명 변경됨")
+
+except Exception as e:
+    diagnosis_result["진단결과"] = "오류"
+    diagnosis_result["현황"].append(str(e))
+
+# ---------------------------
+# JSON 결과 저장
+# ---------------------------
+with open(result_path / "W-01.json", "w", encoding="utf-8") as f:
     json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
 
-# 결과 보고서를 생성할 추가 코드를 여기에 포함시킬 수 있습니다.
-print("스크립트 실행 완료")
+print("W-01 점검 완료")
+print(result_path / "W-01.json")
