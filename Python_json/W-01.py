@@ -47,23 +47,6 @@ diagnosis_result = {
     "대응방안": "기본 Administrator 계정명 변경 및 복잡한 비밀번호 적용"
 }
 
-# ---------------------------
-# 시스템 정보 수집
-# ---------------------------
-with open(raw_path / "systeminfo.txt", "w", encoding="utf-8") as f:
-    subprocess.run("systeminfo", stdout=f, shell=True)
-
-# 로컬 보안 정책 export
-subprocess.run(f'secedit /export /cfg "{raw_path}\\secpol.txt"', shell=True)
-
-# ---------------------------
-# Administrator 실제 이름 확인 (SID 기반)
-# ---------------------------
-try:
-    cmd = 'wmic useraccount where "sid like \'S-1-5-21%%-500\'" get name'
-    output = subprocess.check_output(cmd, shell=True, text=True)
-
-    lines = [l.strip() for l in output.split("\n") if l.strip() and "Name" not in l]
 
     if not lines:
         diagnosis_result["진단결과"] = "N/A"
