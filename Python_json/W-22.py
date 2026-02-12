@@ -1,77 +1,134 @@
 import os
 import json
 import subprocess
+import ctypes
 from pathlib import Path
-import shutil
 
-# JSON 객체 초기화
+# -------------------------------------------------
+# 관리자 권한 체크
+# -------------------------------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# -------------------------------------------------
+# 기본 경로
+# -------------------------------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# -------------------------------------------------
+# 결과 JSON 구조
+# -------------------------------------------------
 diagnosis_result = {
     "분류": "서비스관리",
     "코드": "W-22",
     "위험도": "상",
-    "진단항목": "IIS 서비스 구동 점검",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "진단항목": "FTP 디렉토리 접근권한 설정",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "IIS 서비스 구동 점검"
+    "대응방안": "FTP 홈 디렉터리 Everyone 권한 제거"
 }
 
-# 관리자 권한 확인 및 요청
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+weak_found = False
 
-# 초기 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_dir = Path(f"C:\\Window_{computer_name}_raw")
-result_dir = Path(f"C:\\Window_{computer_name}_result")
+# -------------------------------------------------
+# 1️⃣ IIS FTP 경로 확인
+# -------------------------------------------------
+print("FTP 홈디렉토리 탐색 중...")
 
-# 디렉터리 초기화
-shutil.rmtree(raw_dir, ignore_errors=True)
-shutil.rmtree(result_dir, ignore_errors=True)
-raw_dir.mkdir(parents=True, exist_ok=True)
-result_dir.mkdir(parents=True, exist_ok=True)
+ftp_paths = []
 
-# 보안 설정 및 시스템 정보 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
-(raw_dir / 'compare.txt').touch()
-with open(raw_dir / 'install_path.txt', 'w') as f:
-    f.write(str(raw_dir))
-with open(raw_dir / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+default_paths = [
+    r"C:\inetpub\ftproot",
+    r"C:\FTP",
+    r"D:\FTP"
+]
 
-# IIS 설정 분석
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-with open(application_host_config) as file:
-    content = file.read()
-with open(raw_dir / 'iis_setting.txt', 'w') as file:
-    file.write(content)
+for p in default_paths:
+    if Path(p).exists():
+        ftp_paths.append(p)
 
-# World Wide Web Publishing Service 상태 분석
-try:
-    service_status = subprocess.check_output(['sc', 'query', 'w3svc'], text=True)
-    is_running = "RUNNING" in service_status
-except subprocess.CalledProcessError:
-    is_running = False
+# IIS 설정파일에서 경로 탐색
+iis_config = Path(r"C:\Windows\System32\inetsrv\config\applicationHost.config")
 
-# Update the JSON object based on the service status analysis
-if is_running:
-    diagnosis_result["현황"].append("위험 상태: 'World Wide Web Publishing Service'가 활성화되어 있습니다.")
+if iis_config.exists():
+    try:
+        content = iis_config.read_text(errors="ignore")
+        with open(raw_path / "W-22_iis_raw.txt", "w", encoding="utf-8") as f:
+            f.write(content)
+
+        import re
+        matches = re.findall(r'physicalPath="([^"]+)"', content)
+        for m in matches:
+            if "ftp" in m.lower():
+                ftp_paths.append(m)
+
+    except:
+        pass
+
+ftp_paths = list(set(ftp_paths))
+
+if not ftp_paths:
+    diagnosis_result["현황"].append("FTP 홈 디렉터리 발견되지 않음 (FTP 미사용)")
+else:
+    diagnosis_result["현황"].append(f"FTP 디렉터리 발견: {ftp_paths}")
+
+# -------------------------------------------------
+# 2️⃣ Everyone 권한 검사
+# -------------------------------------------------
+for ftp_dir in ftp_paths:
+    if not Path(ftp_dir).exists():
+        continue
+
+    try:
+        result = subprocess.run(
+            ["icacls", ftp_dir],
+            capture_output=True,
+            text=True
+        )
+
+        acl_output = result.stdout
+
+        with open(raw_path / f"W-22_acl_{os.path.basename(ftp_dir)}.txt", "w", encoding="utf-8") as f:
+            f.write(acl_output)
+
+        if "Everyone" in acl_output:
+            weak_found = True
+            diagnosis_result["현황"].append(f"[취약] {ftp_dir} → Everyone 권한 존재")
+        else:
+            diagnosis_result["현황"].append(f"[양호] {ftp_dir} → Everyone 권한 없음")
+
+    except Exception as e:
+        diagnosis_result["현황"].append(f"{ftp_dir} ACL 확인 실패")
+
+# -------------------------------------------------
+# 최종 판정
+# -------------------------------------------------
+if weak_found:
     diagnosis_result["진단결과"] = "취약"
 else:
-    diagnosis_result["현황"].append("정상 상태: 'World Wide Web Publishing Service'가 비활성화되어 있습니다.")
-    diagnosis_result["진단결과"] = "양호"
+    if ftp_paths:
+        diagnosis_result["진단결과"] = "양호"
+    else:
+        diagnosis_result["진단결과"] = "양호"
 
-# Optionally, append HTTP paths information if needed
-# Here, simulate finding HTTP paths from the IIS config file
-http_paths = [line for line in content.split('\n') if "physicalPath" in line or "bindingInformation" in line]
-if http_paths:
-    diagnosis_result["현황"].append(f"활성화된 HTTP 경로: {len(http_paths)}")
-    diagnosis_result["HTTP경로"] = "; ".join(http_paths)
+# -------------------------------------------------
+# 결과 저장
+# -------------------------------------------------
+with open(result_path / "W-22.json", "w", encoding="utf-8") as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
 
-# Save the JSON results to a file
-json_file_path = result_dir / 'W-22.json'
-with open(json_file_path, 'w') as file:
-    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
-
-print("스크립트 실행 완료")
+print("W-22 점검 완료")
+print(f"결과 위치: {result_path}\\W-22.json")
