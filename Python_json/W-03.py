@@ -1,68 +1,109 @@
 import os
 import json
-import subprocess
-from pathlib import Path
 import shutil
+import subprocess
+import ctypes
+from pathlib import Path
 
-# JSON 객체 초기화
+# -----------------------------
+# 관리자 권한 확인
+# -----------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# -----------------------------
+# 기본 경로
+# -----------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+shutil.rmtree(raw_path, ignore_errors=True)
+shutil.rmtree(result_path, ignore_errors=True)
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# -----------------------------
+# 결과 JSON 구조
+# -----------------------------
 diagnosis_result = {
     "분류": "계정관리",
     "코드": "W-03",
     "위험도": "상",
     "진단항목": "불필요한 계정 제거",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "불필요한 계정 제거"
+    "대응방안": "미사용/의심 계정 삭제 또는 비활성화"
 }
 
-# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+# -----------------------------
+# 기본 허용 계정 (환경별 커스터마이징 가능)
+# -----------------------------
+allowed_accounts = [
+    "Administrator",
+    "Guest",
+    "DefaultAccount",
+    "WDAGUtilityAccount"
+]
 
-# 콘솔 환경 설정
-print("------------------------------------------설정---------------------------------------")
+# -----------------------------
+# 계정 목록 수집
+# -----------------------------
+try:
+    output = subprocess.check_output("net user", shell=True, text=True, encoding="cp949", errors="ignore")
 
-computer_name = os.environ['COMPUTERNAME']
-raw_path = Path(f"C:\\Window_{computer_name}_raw")
-result_path = Path(f"C:\\Window_{computer_name}_result")
+    with open(raw_path / "account_list.txt", "w", encoding="utf-8") as f:
+        f.write(output)
 
-# 기존 폴더 및 파일 제거 및 새 폴더 생성
-shutil.rmtree(raw_path, ignore_errors=True)
-shutil.rmtree(result_path, ignore_errors=True)
-raw_path.mkdir(parents=True, exist_ok=True)
-result_path.mkdir(parents=True, exist_ok=True)
+    # 계정 파싱
+    lines = output.splitlines()
+    users = []
 
-# 보안 정책, 시스템 정보 등 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_path / "Local_Security_Policy.txt")])
-(raw_path / "compare.txt").touch()
-with open(raw_path / 'install_path.txt', 'w') as f:
-    f.write(str(Path.cwd()))
+    for line in lines:
+        if "----" in line or "명령을 잘 실행했습니다" in line:
+            continue
+        if line.strip() == "":
+            continue
+        if "사용자 계정" in line or "User accounts" in line:
+            continue
 
-with open(raw_path / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+        parts = line.split()
+        for p in parts:
+            users.append(p)
 
-# IIS 설정 정보 수집
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'inetsrv' / 'config' / 'applicationHost.Config'
-shutil.copy(application_host_config, raw_path / 'iis_setting.txt')
+    suspicious_accounts = []
 
-# 사용자 계정 정보 수집 및 분석
-users_output = subprocess.check_output('net user', shell=True).decode()
-users = [line.strip() for line in users_output.split('\n') if line.strip() and line.strip().isalpha()]
+    for user in users:
+        if user not in allowed_accounts:
+            suspicious_accounts.append(user)
 
-for user in users:
-    user_info = subprocess.check_output(f'net user {user}', shell=True).decode()
-    is_active = "Account active               Yes" in user_info
-    if is_active:
+    # -----------------------------
+    # 판단
+    # -----------------------------
+    if suspicious_accounts:
         diagnosis_result["진단결과"] = "취약"
-        diagnosis_result["현황"].append(f"활성화된 계정: {user}")
-        with open(raw_path / f'user_{user}.txt', 'w') as f:
-            f.write(user_info)
+        diagnosis_result["현황"].append(f"불필요/확인 필요 계정 발견: {', '.join(suspicious_accounts)}")
+    else:
+        diagnosis_result["현황"].append("불필요한 계정 발견되지 않음")
 
-# JSON 결과를 파일로 저장
-json_file_path = result_path / 'W-03.json'
-with open(json_file_path, 'w') as f:
+except Exception as e:
+    diagnosis_result["진단결과"] = "오류"
+    diagnosis_result["현황"].append(str(e))
+
+# -----------------------------
+# 결과 저장
+# -----------------------------
+with open(result_path / "W-03.json", "w", encoding="utf-8") as f:
     json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
 
-print("스크립트 실행 완료")
+print("W-03 점검 완료")
+print(f"결과 위치: {result_path}\\W-03.json")
