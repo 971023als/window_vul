@@ -1,72 +1,103 @@
 import os
 import json
 import subprocess
+import ctypes
 from pathlib import Path
-import shutil
-import re
 
-# JSON 객체 초기화
+# -----------------------------
+# 관리자 권한 체크
+# -----------------------------
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("관리자 권한으로 실행 필요")
+    exit(1)
+
+# -----------------------------
+# 기본 경로
+# -----------------------------
+computer_name = os.environ.get("COMPUTERNAME", "UNKNOWN")
+
+raw_path = Path(f"C:\\Windows_{computer_name}_raw")
+result_path = Path(f"C:\\Windows_{computer_name}_result")
+
+raw_path.mkdir(parents=True, exist_ok=True)
+result_path.mkdir(parents=True, exist_ok=True)
+
+# -----------------------------
+# 결과 JSON
+# -----------------------------
 diagnosis_result = {
     "분류": "계정관리",
     "코드": "W-14",
-    "위험도": "상",
-    "진단항목": "로컬 로그온 허용",
-    "진단결과": "양호",  # 기본 값을 "양호"로 가정
+    "위험도": "중",
+    "진단항목": "원격터미널 접속 가능한 사용자 그룹 제한",
+    "진단결과": "양호",
     "현황": [],
-    "대응방안": "로컬 로그온 허용 설정"
+    "대응방안": "Remote Desktop Users 그룹에 최소 계정만 유지"
 }
 
-# 관리자 권한 확인 및 요청 (파이썬에서는 직접적인 권한 상승을 수행할 수 없으므로 관리자 권한으로 실행되어야 함)
-if not os.getuid() == 0:
-    print("관리자 권한이 필요합니다...")
-    subprocess.call(['sudo', 'python3'] + sys.argv)
-    sys.exit()
+# -----------------------------
+# Remote Desktop Users 조회
+# -----------------------------
+try:
+    cmd = "net localgroup \"Remote Desktop Users\""
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-# 초기 설정
-computer_name = os.environ['COMPUTERNAME']
-raw_dir = Path(f"C:\\Window_{computer_name}_raw")
-result_dir = Path(f"C:\\Window_{computer_name}_result")
+    output = result.stdout.splitlines()
 
-# 디렉터리 초기화
-shutil.rmtree(raw_dir, ignore_errors=True)
-shutil.rmtree(result_dir, ignore_errors=True)
-raw_dir.mkdir(parents=True, exist_ok=True)
-result_dir.mkdir(parents=True, exist_ok=True)
+    members = []
+    start = False
 
-# 보안 설정 및 시스템 정보 수집
-subprocess.run(['secedit', '/export', '/cfg', str(raw_dir / "Local_Security_Policy.txt")])
-(raw_dir / 'compare.txt').touch()
-with open(raw_dir / 'install_path.txt', 'w') as f:
-    f.write(str(raw_dir))
-with open(raw_dir / 'systeminfo.txt', 'w') as f:
-    subprocess.run(['systeminfo'], stdout=f)
+    for line in output:
+        if "----" in line:
+            start = True
+            continue
+        if start:
+            if "명령을 잘 실행했습니다" in line or "command completed successfully" in line.lower():
+                break
+            if line.strip():
+                members.append(line.strip())
 
-# IIS 설정 분석
-application_host_config = Path(os.environ['WINDIR']) / 'System32' / 'Inetsrv' / 'Config' / 'applicationHost.Config'
-shutil.copy(application_host_config, raw_dir / 'iis_setting.txt')
-iis_data = subprocess.check_output(['findstr', 'physicalPath bindingInformation', str(raw_dir / 'iis_setting.txt')])
-with open(raw_dir / 'iis_path1.txt', 'wb') as f:
-    f.write(iis_data)
+    # 저장
+    with open(raw_path / "rdp_users.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(members))
 
-# 보안 정책 감사 - SeInteractiveLogonRight
-with open(raw_dir / "Local_Security_Policy.txt") as file:
-    local_security_policy = file.read()
-    interactive_logon_right = re.findall(r"SeInteractiveLogonRight.*=.*", local_security_policy)
+    # -----------------------------
+    # 판정 로직
+    # -----------------------------
+    if len(members) == 0:
+        diagnosis_result["진단결과"] = "취약"
+        diagnosis_result["현황"].append("Remote Desktop Users 그룹에 계정 없음 (관리통제 미흡)")
+    else:
+        diagnosis_result["현황"].append(f"등록 계정: {', '.join(members)}")
 
-# Update the JSON object based on the "SeInteractiveLogonRight" policy analysis
-if interactive_logon_right:
-    diagnosis_result["현황"].append("The 'SeInteractiveLogonRight' policy is configured for Administrators, IUSR accounts.")
-    diagnosis_result["진단결과"] = "양호"  # Assuming the presence of the policy indicates compliance
-else:
-    diagnosis_result["진단결과"] = "취약"
-    diagnosis_result["현황"].append("The 'SeInteractiveLogonRight' policy is not configured as expected, indicating a potential security risk.")
+        # Administrator 외 전용계정 존재 여부
+        non_admin = [
+            m for m in members
+            if "administrator" not in m.lower()
+        ]
 
-# Including a generic conclusion in the JSON, can be adjusted based on specific criteria
-diagnosis_result["결론"] = "If necessary, adjust the policy to ensure compliance."
+        if len(non_admin) == 0:
+            diagnosis_result["진단결과"] = "취약"
+            diagnosis_result["현황"].append("Administrator 외 전용 원격접속 계정 없음")
+        else:
+            diagnosis_result["진단결과"] = "양호"
+            diagnosis_result["현황"].append("전용 원격접속 계정 존재 및 최소 권한 운영")
 
-# Save the JSON results to a file
-json_file_path = result_dir / 'W-14.json'
-with open(json_file_path, 'w') as file:
-    json.dump(diagnosis_result, file, ensure_ascii=False, indent=4)
+except Exception as e:
+    diagnosis_result["진단결과"] = "오류"
+    diagnosis_result["현황"].append(str(e))
 
-print("스크립트 실행 완료")
+# -----------------------------
+# 결과 저장
+# -----------------------------
+with open(result_path / "W-14.json", "w", encoding="utf-8") as f:
+    json.dump(diagnosis_result, f, ensure_ascii=False, indent=4)
+
+print("W-14 점검 완료")
+print(f"결과 위치: {result_path}\\W-14.json")
