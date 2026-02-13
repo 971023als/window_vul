@@ -1,55 +1,94 @@
-# JSON 데이터 초기화
-$json = [PSCustomObject]@{
-    분류 = "서비스관리"
-    코드 = "W-40"
-    위험도 = "상"
-    진단 항목 = "FTP 접근 제어 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "FTP 접근 제어 설정"
-}
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 관리자 권한 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-If (-not $isAdmin) {
-    Write-Host "이 스크립트는 관리자 권한으로 실행되어야 합니다. 관리자 권한으로 재실행하겠습니다..."
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    Exit
-}
+$csvFile = Join-Path $resultDir "Audit_Policy_Check.csv"
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# 2. 진단 정보 기본 설정
+$category = "로그 관리"
+$code = "W-40"
+$riskLevel = "중"
+$diagnosisItem = "정책에 따른 시스템 로깅 설정"
+$remedialAction = "로컬 보안 정책(secpol.msc)에서 권고된 감사 정책(성공/실패)을 설정"
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 시스템 로깅 설정 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-# 결과 저장 경로 안내
-Write-Host "결과는 다음 위치에 저장될 예정입니다: $resultDir\W-40.json"
+# 3. 실제 점검 로직
+try {
+    # auditpol 결과를 가져옴 (언어 호환성을 위해 카테고리별로 확인)
+    $auditStatus = auditpol /get /category:*
+    
+    $vulnerableItems = @()
+    
+    # 점검 대상 범주 및 권고 설정 정의
+    # (일반적인 보안 가이드라인 기준: 주요 항목은 성공/실패 모두 기록)
+    $checkList = @(
+        @{ Name = "계정 로그온 이벤트"; Pattern = "Account Logon"; Recommendation = "성공 및 실패" },
+        @{ Name = "계정 관리"; Pattern = "Account Management"; Recommendation = "성공 및 실패" },
+        @{ Name = "로그온 이벤트"; Pattern = "Logon"; Recommendation = "성공 및 실패" },
+        @{ Name = "정책 변경"; Pattern = "Policy Change"; Recommendation = "성공 및 실패" },
+        @{ Name = "권한 사용"; Pattern = "Privilege Use"; Recommendation = "실패" }
+    )
 
-Try {
-    # 이전 디렉토리 삭제 및 새 디렉토리 생성
-    Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+    foreach ($item in $checkList) {
+        # 한국어/영어 환경 대응을 위해 auditpol 결과에서 해당 패턴 라인 추출
+        $line = $auditStatus | Where-Object { $_ -match $item.Pattern -or $_ -match $item.Name }
+        
+        if ($null -eq $line) {
+            $vulnerableItems += "$($item.Name): 설정 확인 불가"
+            continue
+        }
 
-    # 진단 로직 (간략화된 형태로 표현)
-    # 실제 진단 로직을 구현하세요. 이 예제에서는 단순화를 위해 직접 값을 설정합니다.
-    $isFtpSecure = $false
-
-    if (-not $isFtpSecure) {
-        $json."진단 결과" = "위험"
-        $json.현황 += "특정 IP 주소에서만 FTP 접속이 허용되어야 하나, 현재 모든 IP에서 접속이 허용되어 있어 취약합니다."
-    } else {
-        $json.현황 += "특정 IP 주소에서만 FTP 접속이 허용되어 있습니다."
+        # 권고 설정에 따른 검증
+        if ($item.Recommendation -eq "성공 및 실패") {
+            if ($line -notmatch "성공" -or $line -notmatch "실패" -and $line -notmatch "Success" -or $line -notmatch "Failure") {
+                if ($line -notmatch "성공 및 실패" -and $line -notmatch "Success and Failure") {
+                    $vulnerableItems += "$($item.Name): 현재($line)"
+                }
+            }
+        } elseif ($item.Recommendation -eq "실패") {
+            if ($line -notmatch "실패" -and $line -notmatch "Failure") {
+                $vulnerableItems += "$($item.Name): 현재($line)"
+            }
+        }
     }
 
-    # JSON 결과를 파일에 저장
-    $json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultDir\W-40.json"
+    # 4. 최종 결과 판정
+    if ($vulnerableItems.Count -gt 0) {
+        $result = "취약"
+        $statusMsg = "다음 감사 정책이 권고 기준에 미달합니다: " + ($vulnerableItems -join " / ")
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $statusMsg = "모든 주요 감사 정책이 권고 기준(성공/실패)에 따라 적절히 설정되어 있습니다."
+        $color = "Green"
+    }
 
-} Catch {
-    Write-Host "오류 발생: $_"
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
+
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
+}
+
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
+
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
+
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
