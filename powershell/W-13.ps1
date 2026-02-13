@@ -1,55 +1,70 @@
-# JSON 객체 초기화
-$json = @{
-    "분류" = "계정관리"
-    "코드" = "W-13"
-    "위험도" = "상"
-    "진단 항목" = "마지막 사용자 이름 표시 안함"
-    "진단 결과" = "양호"  # 기본 값을 "양호"로 가정
-    "현황" = @()
-    "대응방안" = "마지막 사용자 이름 표시 안함"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
+
+$csvFile = Join-Path $resultDir "Blank_Password_Restriction_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "계정관리"
+$code = "W-13"
+$riskLevel = "중"
+$diagnosisItem = "콘솔 로그온 시 로컬 계정에서 빈 암호 사용 제한"
+$remedialAction = "'계정: 콘솔 로그온 시 로컬 계정에서 빈 암호 사용 제한' 정책을 '사용'으로 설정 (secpol.msc)"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 빈 암호 사용 제한 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 실제 점검 로직 (레지스트리 값 확인)
+try {
+    # 레지스트리 경로 및 값 설정
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+    $regName = "LimitBlankPasswordUse"
+    
+    if (Test-Path $regPath) {
+        $regValue = (Get-ItemProperty -Path $regPath -Name $regName -ErrorAction SilentlyContinue).$regName
+        
+        # 레지스트리 값이 1이면 제한 사용 (양호)
+        # 레지스트리 값이 0이면 제한 사용 안 함 (취약)
+        # 값이 없는 경우 윈도우 기본값은 1(사용)임
+        if ($null -eq $regValue -or $regValue -eq 1) {
+            $result = "양호"
+            $status = "정책이 '사용(Enabled)'으로 설정되어 빈 암호 계정의 원격 접속이 제한됩니다."
+            $color = "Green"
+        } else {
+            $result = "취약"
+            $status = "정책이 '사용 안 함(Disabled)'으로 설정되어 빈 암호 계정의 원격 접속이 허용될 수 있습니다."
+            $color = "Red"
+        }
+    } else {
+        $result = "오류"
+        $status = "레지스트리 경로를 찾을 수 없습니다."
+        $color = "Yellow"
+    }
+} catch {
+    $result = "오류"
+    $status = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# 관리자 권한 확인 및 요청
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
-    exit
+# 4. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $status
+    "Remedial Action"= $remedialAction
 }
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$Host.UI.RawUI.ForegroundColor = "Green"
+# 5. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $status"
+Write-Host "------------------------------------------------"
 
-# 초기 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+# CSV 저장 (Append 모드)
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-# 보안 설정 및 시스템 정보 수집
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$installPath = (Get-Location).Path
-$installPath | Out-File -FilePath "$rawDir\install_path.txt"
-systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
-
-# IIS 설정 분석
-$applicationHostConfig = Get-Content -Path "${env:WinDir}\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File -FilePath "$rawDir\iis_path1.txt"
-
-# 보안 정책 분석 - DontDisplayLastUserName
-$securityPolicy = Get-Content -Path "$rawDir\Local_Security_Policy.txt"
-$policyAnalysis = $securityPolicy | Where-Object { $_ -match "DontDisplayLastUserName\s*=\s*1" }
-
-# Update the JSON object based on the "DontDisplayLastUserName" policy analysis
-if ($policyAnalysis) {
-    $json.진단결과 = "양호"
-    $json.현황 += "준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 활성화되어 있습니다."
-} else {
-    $json.진단결과 = "취약"
-    $json.현황 += "미준수: 마지막으로 로그온한 사용자 이름을 표시하지 않는 정책이 비활성화되어 있습니다."
-}
-
-# Save the JSON results to a file named "1.json"
-$jsonFilePath = "$resultDir\W-13.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
