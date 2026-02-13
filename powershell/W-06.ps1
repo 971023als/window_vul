@@ -1,57 +1,85 @@
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-06"
-    위험도 = "상"
-    진단항목 = "관리자 그룹에 최소한의 사용자 포함"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "관리자 그룹에 최소한의 사용자 포함"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
+
+$csvFile = Join-Path $resultDir "Admin_Group_Member_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "계정관리"
+$code = "W-06"
+$riskLevel = "상"
+$diagnosisItem = "관리자 그룹에 최소한의 사용자 포함"
+$remedialAction = "Administrators 그룹에서 불필요한 계정 제거 (lusrmgr.msc)"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 관리자 그룹 최소 사용자 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 실제 점검 로직 (로컬 관리자 그룹 구성원 확인)
+try {
+    # 로컬 관리자 그룹(SID S-1-5-32-544) 찾기 (한글/영문 윈도우 호환)
+    $adminGroup = Get-CimInstance -ClassName Win32_Group | Where-Object { $_.SID -eq "S-1-5-32-544" }
+    
+    # 그룹 구성원 가져오기
+    $query = "GroupComponent='Win32_Group.Domain=""$($adminGroup.Domain)"",Name=""$($adminGroup.Name)""'"
+    $members = Get-CimInstance -ClassName Win32_GroupUser | Where-Object { $_.GroupComponent -match $adminGroup.Name }
+    
+    $memberList = @()
+    $adminCount = 0
+
+    foreach ($member in $members) {
+        # 'Name="계정명"' 부분에서 이름 추출
+        if ($member.PartComponent -match 'Name="([^"]+)"') {
+            $name = $matches[1]
+            
+            # 기본 빌트인 Administrator 계정(SID 끝자리 500) 확인
+            $userObj = Get-CimInstance -ClassName Win32_UserAccount | Where-Object { $_.Name -eq $name }
+            
+            if ($userObj.SID -like "*-500") {
+                $memberList += "$name (빌트인 관리자)"
+            } else {
+                $memberList += "$name (추가된 관리자)"
+                $adminCount++
+            }
+        }
+    }
+
+    # 4. 판정 로직
+    # 빌트인 계정 외에 추가된 계정이 있으면 취약으로 간주 (정책에 따라 1명 초과 시 취약)
+    if ($adminCount -gt 0) {
+        $result = "취약"
+        $status = "관리자 그룹에 불필요한 계정(기본 계정 외 $($adminCount)명)이 포함되어 있습니다: " + ($memberList -join ", ")
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $status = "관리자 그룹 구성원이 적절하게 관리되고 있습니다 (구성원: " + ($memberList -join ", ") + ")"
+        $color = "Green"
+    }
+
+} catch {
+    $result = "오류"
+    $status = "관리자 그룹 정보를 가져오는 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# Check for Administrator privileges
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "관리자 권한을 요청하는 중..."
-    $currentScript = $MyInvocation.MyCommand.Definition
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$currentScript`"" -Verb RunAs
-    Exit
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $status
+    "Remedial Action"= $remedialAction
 }
 
-# Set console preferences
-[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $status"
+Write-Host "------------------------------------------------"
 
-# Initial setup
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
+# CSV 저장 (UTF8 적용)
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-# Get installation path
-"$installPath" | Out-File "$rawDir\install_path.txt"
-
-# Collect system information
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS Configuration
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Get-Content "$env:WINDOWS\system32\inetsrv\MetaBase.xml" | Out-File "$rawDir\iis_setting.txt" -Append
-
-# Check for "test" or "Guest" in Administrators group
-$administrators = net localgroup Administrators
-$nonCompliantAccounts = $administrators | Where-Object { $_ -match "test|Guest" }
-
-# 관리자 그룹 멤버십 검사 후 JSON 객체 업데이트
-if ($nonCompliantAccounts) {
-    $json.진단결과 = "취약"
-    $json.현황 += "관리자 그룹에 임시 또는 게스트 계정('test', 'Guest')이 포함되어 있습니다."
-} else {
-    $json.현황 += "관리자 그룹에 임시 또는 게스트 계정이 포함되지 않아 보안 정책을 준수합니다."
-}
-
-# JSON 결과를 파일로 저장
-$jsonFilePath = "$resultDir\W-06.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
