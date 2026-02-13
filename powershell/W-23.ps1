@@ -1,64 +1,88 @@
-$json = @{
-        "분류": "서비스관리",
-        "코드": "W-23",
-        "위험도": "상",
-        "진단 항목": "IIS 디렉토리 리스팅 제거",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "IIS 디렉토리 리스팅 제거"
-    }
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 관리자 권한 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
-    Exit
-}
+$csvFile = Join-Path $resultDir "Anonymous_Access_Restriction_Check.csv"
 
-# 콘솔 환경 설정 및 초기 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.ForegroundColor = "Green"
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-23"
+$riskLevel = "상"
+$diagnosisItem = "공유 서비스에 대한 익명 접근 제한 설정"
+$remedialAction = "FTP 익명 인증 비활성화 및 레지스트리 RestrictAnonymous 설정(1 이상) 적용"
 
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$null = New-Item -Path "$rawDir\compare.txt" -ItemType File
-(Get-Location).Path | Out-File "$rawDir\install_path.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 익명 접근 제한 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-# IIS 설정 분석
-$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig = Get-Content $applicationHostConfigPath
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | ForEach-Object {
-    $_.Matches.Value >> "$rawDir\iis_path1.txt"
-}
+# 3. 실제 점검 로직
+try {
+    $vulnerabilities = @()
+    $isFtpInstalled = $false
 
-# Assuming $iisPaths is correctly populated earlier in the script, as the provided snippet doesn't show its initialization
-
-# Update the JSON object based on the directory browsing check
-If ($serviceStatus.Status -eq "Running") {
-    Foreach ($path in $iisPaths) {
-        If (Test-Path $path\web.config) {
-            $webConfig = Get-Content "$path\web.config"
-            If ($webConfig -match "<directoryBrowse .*enabled=`"true`"") {
-                $json.현황 += "불안전한 상태: 디렉토리 브라우징이 활성화되어 있습니다."
-                $json.진단결과 = "취약"
-                Break
+    # --- [Step 1] IIS FTP 익명 인증 점검 ---
+    if (Get-Module -ListAvailable WebAdministration) {
+        Import-Module WebAdministration
+        $ftpSites = Get-ChildItem -Path "IIS:\Sites" | Where-Object { $_.bindings.protocol -contains "ftp" }
+        
+        if ($ftpSites) {
+            $isFtpInstalled = $true
+            foreach ($site in $ftpSites) {
+                # 익명 인증(anonymousAuthentication) 활성화 여부 확인
+                $anonAuth = Get-WebConfigurationProperty -Filter "/system.ftpServer/security/authentication/anonymousAuthentication" -Name "enabled" -PSPath "IIS:\Sites\$($site.Name)"
+                
+                if ($anonAuth.Value -eq $true) {
+                    $vulnerabilities += "FTP 사이트 '$($site.Name)': 익명 인증 활성화됨"
+                }
             }
         }
     }
-    If (!$?) {
-        $json.현황 += "안전한 상태: 디렉토리 브라우징이 비활성화되어 있습니다."
-        $json.진단결과 = "양호"
+
+    # --- [Step 2] 시스템 익명 연결 제한 레지스트리 점검 (SMB 등 영향) ---
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+    $regName = "RestrictAnonymous"
+    $restrictAnon = (Get-ItemProperty -Path $regPath -Name $regName -ErrorAction SilentlyContinue).$regName
+
+    # RestrictAnonymous 값이 0이면 익명 접근 허용 (취약)
+    # 1: 익명 열거 제한, 2: 익명 접근 완전 제한
+    if ($null -eq $restrictAnon -or $restrictAnon -eq 0) {
+        $vulnerabilities += "시스템 정책: RestrictAnonymous 값이 0(허용)으로 설정됨"
     }
-} Else {
-    $json.현황 += "안전한 상태: World Wide Web Publishing Service가 실행되지 않고 있습니다."
-    $json.진단결과 = "양호"
+
+    # 4. 최종 판정 로직
+    if ($vulnerabilities.Count -gt 0) {
+        $result = "취약"
+        $status = "익명 접근이 허용된 항목이 발견되었습니다: " + ($vulnerabilities -join " / ")
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $status = "모든 공유 서비스 및 시스템 정책에서 익명 접근이 적절히 제한되고 있습니다."
+        $color = "Green"
+    }
+
+} catch {
+    $result = "오류"
+    $status = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-23.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $status
+    "Remedial Action"= $remedialAction
+}
+
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $status"
+Write-Host "------------------------------------------------"
+
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
+
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
