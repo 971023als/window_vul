@@ -1,71 +1,71 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
+chcp 65001 >nul
 
-:: Request Administrator privileges
+:: 1. 관리자 권한 확인
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'" -Wait
-    exit
+    echo [!] 이 스크립트는 관리자 권한으로 실행해야 합니다.
+    pause
+    exit /b
 )
 
-:: Set console environment
-chcp 437 >nul
-color 2A
-cls
-echo Setting up the environment...
+:: 2. 진단 정보 및 파일 설정
+set "CATEGORY=보안 관리"
+set "CODE=W-62"
+set "RISK=중"
+set "ITEM=시작 프로그램 목록 분석"
+set "ACTION=불필요하거나 의심스러운 시작 프로그램 삭제 및 비활성화 (Taskmgr 또는 레지스트리 정리)"
+set "CSV_FILE=Startup_Program_Analysis.csv"
 
-:: Define the directory to store results and create if not exists
-set "resultDir=%~dp0results"
-if not exist "!resultDir!" mkdir "!resultDir!"
+:: 결과 폴더 생성
+if not exist "result" mkdir "result"
+set "FULL_PATH=result\%CSV_FILE%"
 
-:: Define CSV file for antivirus software status analysis
-set "csvFile=!resultDir!\Antivirus_Software_Status.csv"
-echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
+:: CSV 헤더 생성
+if not exist "%FULL_PATH%" (
+    echo Category,Code,Risk Level,Diagnosis Item,Result,Current Status,Remedial Action > "%FULL_PATH%"
+)
 
-:: Define security details
-set "category=보안관리"
-set "code=W-62"
-set "riskLevel=상"
-set "diagnosisItem=백신 프로그램 설치"
-set "service=Antivirus"
-set "diagnosisResult="
-set "status="
+echo ------------------------------------------------
+echo CODE [%CODE%] %ITEM% 점검 시작
+echo ------------------------------------------------
 
-set "TMP1=%~n0.log"
-type nul > "!TMP1!"
+:: 3. 실제 점검 로직
+set "STARTUP_LIST="
+set "COUNT=0"
 
-echo ------------------------------------------------ >> "!TMP1!"
-echo CODE [!code!] Antivirus Installation Check >> "!TMP1!"
-echo ------------------------------------------------ >> "!TMP1!"
+:: 레지스트리 주요 시작 프로그램 경로 조사 (HKLM 및 HKCU)
+set "REG_PATHS="HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce" "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" "HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce""
 
-:: Check for antivirus software installation
-PowerShell -Command "& {
-    $softwareKeys = @('HKLM:\\SOFTWARE\\ESTsoft', 'HKLM:\\SOFTWARE\\AhnLab')
-    $softwareInstalled = $False
-    foreach ($key in $softwareKeys) {
-        If (Test-Path $key) {
-            $softwareInstalled = $True
-            $status = 'OK: Antivirus software installed at '+$key
-            break
-        }
-    }
+for %%P in (%REG_PATHS%) do (
+    for /f "tokens=1,*" %%A in ('reg query %%P 2^>nul ^| findstr /v "HKEY_"') do (
+        if not "%%A"=="" (
+            set /a COUNT+=1
+            set "STARTUP_LIST=!STARTUP_LIST! [%%A]"
+        )
+    )
+)
 
-    If (-not $softwareInstalled) {
-        $status = 'WARN: No ESTsoft or AhnLab antivirus software installed.'
-    }
-    \"$status\" | Out-File -FilePath temp.txt;
-}"
-set /p diagnosisResult=<temp.txt
-del temp.txt
+:: 4. 판정 로직
+if %COUNT% gtr 0 (
+    :: 시작 프로그램이 존재하면 관리자 검토가 필요하므로 '취약(검토 필요)' 판정
+    set "RESULT=취약(검토)"
+    set "STATUS_MSG=총 %COUNT%개의 시작 프로그램이 등록되어 있습니다. 목록: !STARTUP_LIST!"
+) else (
+    set "RESULT=양호"
+    set "STATUS_MSG=등록된 시작 프로그램이 없습니다."
+)
 
-:: Save results to CSV
-echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
+:: 5. 결과 출력 및 CSV 저장
+echo [결과] : %RESULT%
+echo [현황] : %STATUS_MSG%
+echo ------------------------------------------------
 
-echo ------------------------------------------------ >> "!TMP1!"
-type "!TMP1!"
+:: CSV 파일 저장 (특수문자 콤마 제거 처리)
+set "CLEAN_MSG=%STATUS_MSG:,= %"
+echo "%CATEGORY%","%CODE%","%RISK%","%ITEM%","%RESULT%","%CLEAN_MSG%","%ACTION%" >> "%FULL_PATH%"
 
-echo Audit complete. Results can be found in !resultDir!\Antivirus_Software_Status.csv.
 echo.
-
-ENDLOCAL
+echo 점검 완료! 결과가 저장되었습니다: %FULL_PATH%
 pause
