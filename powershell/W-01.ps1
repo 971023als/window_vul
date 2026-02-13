@@ -1,51 +1,59 @@
-# 진단 결과 JSON 객체
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-01"
-    위험도 = "상"
-    진단항목 = "Administrator 계정 이름 바꾸기"
-    진단결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "Administrator 계정 이름 변경"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
+
+$csvFile = Join-Path $resultDir "Admin_Account_Name_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "계정관리"
+$code = "W-01"
+$riskLevel = "상"
+$diagnosisItem = "Administrator 계정 이름 바꾸기"
+$remedialAction = "Administrator 계정 이름 변경 (secpol.msc)"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 관리자 계정 이름 변경 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 실제 점검 로직 (SID가 -500으로 끝나는 계정 탐지)
+try {
+    # 빌트인 관리자 계정(RID 500) 정보 가져오기
+    $adminUser = Get-CimInstance -ClassName Win32_UserAccount | Where-Object { $_.SID -like "*-500" }
+    $currentName = $adminUser.Name
+
+    if ($currentName -ieq "Administrator") {
+        $result = "취약"
+        $status = "관리자 계정의 기본 이름(Administrator)이 변경되지 않았습니다."
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $status = "관리자 계정 이름이 [$currentName](으)로 변경되어 있습니다."
+        $color = "Green"
+    }
+} catch {
+    $result = "오류"
+    $status = "계정 정보를 가져오는 중 에러가 발생했습니다: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# 관리자 권한 확인
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
-{
-    Write-Host "관리자 권한이 필요합니다..."
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$PSCommandPath", "-Verb", "RunAs"
-    Exit
+# 4. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $status
+    "Remedial Action"= $remedialAction
 }
 
-# 기본 설정
-$computerName = $env:COMPUTERNAME
-$rawPath = "C:\Window_${computerName}_raw"
-$resultPath = "C:\Window_${computerName}_result"
+# 5. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $status"
+Write-Host "------------------------------------------------"
 
-Remove-Item -Path $rawPath, $resultPath -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawPath, $resultPath -ItemType Directory -Force
+# CSV 저장 (UTF8 적용으로 한글 깨짐 방지)
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-# 로컬 보안 정책 내보내기
-secedit /EXPORT /CFG "$rawPath\Local_Security_Policy.txt"
-
-# 시스템 정보 수집
-systeminfo | Out-File -FilePath "$rawPath\systeminfo.txt"
-
-# IIS 설정 수집
-$applicationHostConfig = Get-Content -Path $env:WinDir\System32\Inetsrv\Config\applicationHost.Config
-$applicationHostConfig | Out-File -FilePath "$rawPath\iis_setting.txt"
-
-# 관리자 계정 이름 변경 여부 확인
-$adminNameChange = Select-String -Path "$rawPath\Local_Security_Policy.txt" -Pattern "NewAdministratorName"
-if ($adminNameChange -eq $null) {
-    $json.진단결과 = "취약"
-    $json.현황 += "관리자 계정의 기본 이름이 변경되지 않았습니다."
-} else {
-    $json.현황 += "관리자 계정의 기본 이름이 변경되었습니다."
-}
-
-# 진단 결과 JSON 파일로 저장
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath "$resultPath\W-01.json"
-
-# 이후에는 결과 보고서를 생성하는 코드를 추가할 수 있습니다.
-Write-Host "스크립트 실행 완료"
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
