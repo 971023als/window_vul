@@ -1,64 +1,79 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
+chcp 65001 >nul
 
-:: Request Administrator privileges
+:: 1. 관리자 권한 확인
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'"
-    exit
+    echo [!] 이 스크립트는 관리자 권한으로 실행해야 합니다.
+    pause
+    exit /b
 )
 
-:: Set console environment
-chcp 437 >nul
-color 2A
-cls
-echo Setting up the environment...
+:: 2. 진단 정보 및 파일 설정
+set "CATEGORY=보안 관리"
+set "CODE=W-59"
+set "RISK=중"
+set "ITEM=LAN Manager 인증 수준 적절성 점검"
+set "ACTION=보안 옵션에서 '네트워크 보안: LAN Manager 인증 수준'을 'NTLMv2 응답만 보내기'로 설정"
+set "CSV_FILE=LAN_Manager_Auth_Level_Check.csv"
 
-:: Define the directory to store results and create if not exists
-set "resultDir=%~dp0results"
-if not exist "!resultDir!" mkdir "!resultDir!"
+:: 결과 폴더 생성
+if not exist "result" mkdir "result"
+set "FULL_PATH=result\%CSV_FILE%"
 
-:: Define CSV file for Remote Registry service status analysis
-set "csvFile=!resultDir!\Remote_Registry_Status.csv"
-echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
+:: CSV 헤더 생성
+if not exist "%FULL_PATH%" (
+    echo Category,Code,Risk Level,Diagnosis Item,Result,Current Status,Remedial Action > "%FULL_PATH%"
+)
 
-:: Define security details
-set "category=로그관리"
-set "code=W-59"
-set "riskLevel=상"
-set "diagnosisItem=원격으로 액세스할 수 있는 레지스트리 경로"
-set "service=Remote Registry"
-set "diagnosisResult="
-set "status="
+echo ------------------------------------------------
+echo CODE [%CODE%] %ITEM% 점검 시작
+echo ------------------------------------------------
 
-set "TMP1=%~n0.log"
-type nul > "!TMP1!"
+:: 3. 실제 점검 로직 (레지스트리 쿼리)
+:: 경로: HKLM\SYSTEM\CurrentControlSet\Control\Lsa
+set "REG_PATH=HKLM\SYSTEM\CurrentControlSet\Control\Lsa"
+set "LM_VAL="
 
-echo ------------------------------------------------ >> "!TMP1!"
-echo CODE [W-59] Remote Registry Access Path Vulnerability >> "!TMP1!"
-echo ------------------------------------------------ >> "!TMP1!"
+for /f "tokens=3" %%A in ('reg query "%REG_PATH%" /v LmCompatibilityLevel 2^>nul') do (
+    set "LM_VAL=%%A"
+)
 
-:: Check Remote Registry service status (PowerShell 사용)
-powershell -Command "& {
-    $remoteRegistryStatus = Get-Service -Name 'RemoteRegistry' -ErrorAction SilentlyContinue;
-    if ($remoteRegistryStatus -and $remoteRegistryStatus.Status -eq 'Running') {
-        $status = 'WARN: Remote Registry Service is enabled, which is a risk.'
-    } else {
-        $status = 'OK: Remote Registry Service is disabled, which is secure.'
-    }
-    \"$status\" | Out-File -FilePath temp.txt;
-}"
-set /p diagnosisResult=<temp.txt
-del temp.txt
+:: 4. 판정 로직
+:: 0x3 (3): NTLMv2 응답만 보냄
+:: 0x4 (4): NTLMv2 응답만 보냄. LM 거부
+:: 0x5 (5): NTLMv2 응답만 보냄. LM 및 NTLM 거부
+:: 위 3가지 중 하나면 양호, 그 외(0,1,2 또는 설정 없음)는 취약
 
-:: Save results to CSV
-echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
+if "!LM_VAL!"=="" (
+    set "RESULT=취약"
+    set "STATUS_MSG=LAN Manager 인증 수준이 레지스트리에 설정되어 있지 않습니다."
+) else (
+    if "!LM_VAL!"=="0x3" (
+        set "RESULT=양호"
+        set "STATUS_MSG=NTLMv2 응답만 보내기(3)로 설정되어 있습니다."
+    ) else if "!LM_VAL!"=="0x4" (
+        set "RESULT=양호"
+        set "STATUS_MSG=NTLMv2 응답만 보내기. LM 거부(4)로 설정되어 있습니다."
+    ) else if "!LM_VAL!"=="0x5" (
+        set "RESULT=양호"
+        set "STATUS_MSG=NTLMv2 응답만 보내기. LM 및 NTLM 거부(5)로 설정되어 있습니다."
+    ) else (
+        set "RESULT=취약"
+        set "STATUS_MSG=취약한 인증 수준(!LM_VAL!)이 사용되고 있습니다."
+    )
+)
 
-echo ------------------------------------------------ >> "!TMP1!"
-type "!TMP1!"
+:: 5. 결과 출력 및 CSV 저장
+echo [결과] : %RESULT%
+echo [현황] : %STATUS_MSG%
+echo ------------------------------------------------
 
-echo Audit complete. Results can be found in %resultDir%\Remote_Registry_Status.csv.
+:: CSV 저장 (메시지 내 콤마 제거)
+set "CLEAN_MSG=%STATUS_MSG:,= %"
+echo "%CATEGORY%","%CODE%","%RISK%","%ITEM%","%RESULT%","%CLEAN_MSG%","%ACTION%" >> "%FULL_PATH%"
+
 echo.
-
-ENDLOCAL
+echo 점검 완료! 결과가 저장되었습니다: %FULL_PATH%
 pause
