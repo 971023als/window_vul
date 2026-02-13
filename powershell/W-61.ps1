@@ -1,60 +1,75 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "로그관리"
-    코드 = "W-61"
-    위험도 = "상"
-    진단 항목 = "원격에서 이벤트 로그 파일 접근 차단"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "원격에서 이벤트 로그 파일 접근 차단"
-}
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
-    exit
-}
+$csvFile = Join-Path $resultDir "File_System_Security_Check.csv"
 
-# 환경 설정 및 디렉터리 초기화
-$computerName = $env:COMPUTERNAME
-$rawDirectory = "C:\Window_${computerName}_raw"
-$resultDirectory = "C:\Window_${computerName}_result"
+# 2. 진단 정보 기본 설정
+$category = "보안 관리"
+$code = "W-61"
+$riskLevel = "중"
+$diagnosisItem = "NTFS 파일 시스템 사용 여부 점검"
+$remedialAction = "FAT 계열 파일 시스템을 NTFS로 변환 (명령어: convert 드라이브: /fs:ntfs)"
 
-Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 파일 시스템 보안 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-# 디렉터리 권한 검사
-$directories = @("$env:systemroot\system32\logfiles", "$env:systemroot\system32\config")
-$vulnerabilityFound = $False
+# 3. 실제 점검 로직
+try {
+    # 3-1. 모든 로컬 디스크(DriveType 3) 정보 가져오기
+    $disks = Get-CimInstance -ClassName Win32_LogicalDisk -Filter "DriveType=3"
+    
+    $vulnerableDisks = @()
+    $diskDetails = @()
+    $isVulnerable = $false
 
-foreach ($dir in $directories) {
-    $acl = Get-Acl $dir
-    foreach ($ace in $acl.Access) {
-        If ($ace.IdentityReference -eq "Everyone" -and $ace.FileSystemRights -like "*FullControl*") {
-            $vulnerabilityFound = $True
-            $json.현황 += "취약: Everyone 그룹이 '$dir'에 전체 제어 권한을 가지고 있습니다."
-            break
+    foreach ($disk in $disks) {
+        $drive = $disk.DeviceID
+        $fsType = $disk.FileSystem
+        $diskDetails += "$drive ($fsType)"
+
+        # NTFS 또는 ReFS(차세대 보안 파일시스템)가 아닌 경우 취약으로 간주
+        if ($fsType -notmatch "NTFS|ReFS") {
+            $isVulnerable = $true
+            $vulnerableDisks += "$drive ($fsType)"
         }
     }
+
+    # 4. 판정 로직
+    if ($isVulnerable) {
+        $result = "취약"
+        $statusMsg = "보안 기능이 없는 파일 시스템이 발견되었습니다: " + ($vulnerableDisks -join ", ")
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $statusMsg = "모든 로컬 드라이브가 보안 파일 시스템(NTFS/ReFS)을 사용 중입니다. (" + ($diskDetails -join ", ") + ")"
+        $color = "Green"
+    }
+
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-If (-not $vulnerabilityFound) {
-    $json.현황 += "안전: 주요 디렉터리에 Everyone 그룹 권한이 적절하게 제한되어 있습니다."
-} else {
-    $json.진단 결과 = "취약"
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
 }
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDirectory\W-61.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
 
-# 결과 요약 및 저장
-Get-Content -Path $jsonFilePath | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
-
-# 정리 작업
-Remove-Item -Path "$rawDirectory\*" -Force
-
-Write-Host "Script has completed."
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
