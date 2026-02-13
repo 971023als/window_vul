@@ -1,64 +1,75 @@
 @echo off
-SETLOCAL EnableDelayedExpansion
+setlocal enabledelayedexpansion
+chcp 65001 >nul
 
-:: Request Administrator privileges
+:: 1. 관리자 권한 확인
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    PowerShell -Command "Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy Bypass', '-File', '%~f0', '-Verb', 'RunAs'" -Wait
-    exit
+    echo [!] 이 스크립트는 관리자 권한으로 실행해야 합니다.
+    pause
+    exit /b
 )
 
-:: Set console environment
-chcp 437 >nul
-color 2A
-cls
-echo Setting up the environment...
+:: 2. 진단 정보 및 파일 설정
+set "CATEGORY=보안 관리"
+set "CODE=W-63"
+set "RISK=중"
+set "ITEM=도메인 컨트롤러-사용자의 시간 동기화"
+set "ACTION=보안 정책에서 '컴퓨터 시계 동기화 최대 허용 오차'를 5분 이하로 설정"
+set "CSV_FILE=Kerberos_Time_Sync_Check.csv"
 
-:: Define the directory to store results and create if not exists
-set "resultDir=%~dp0results"
-if not exist "!resultDir!" mkdir "!resultDir!"
+:: 결과 폴더 생성
+if not exist "result" mkdir "result"
+set "FULL_PATH=result\%CSV_FILE%"
 
-:: Define CSV file for SAM file access status analysis
-set "csvFile=!resultDir!\SAM_File_Access_Status.csv"
-echo "Category,Code,Risk Level,Diagnosis Item,Service,Diagnosis Result,Status" > "!csvFile!"
+:: CSV 헤더 생성
+if not exist "%FULL_PATH%" (
+    echo Category,Code,Risk Level,Diagnosis Item,Result,Current Status,Remedial Action > "%FULL_PATH%"
+)
 
-:: Define security details
-set "category=보안관리"
-set "code=W-63"
-set "riskLevel=상"
-set "diagnosisItem=SAM 파일 접근 통제 설정"
-set "service=SAM Access"
-set "diagnosisResult="
-set "status="
+echo ------------------------------------------------
+echo CODE [%CODE%] %ITEM% 점검 시작
+echo ------------------------------------------------
 
-set "TMP1=%~n0.log"
-type nul > "!TMP1!"
+:: 3. 실제 점검 로직 (secedit 이용)
+set "TMP_FILE=%TEMP%\secedit_export.txt"
+set "SKEW_VAL="
 
-echo ------------------------------------------------ >> "!TMP1!"
-echo CODE [!code!] SAM File Access Control >> "!TMP1!"
-echo ------------------------------------------------ >> "!TMP1!"
+:: 로컬 보안 정책 내보내기 (SECURITYPOLICY 영역)
+secedit /export /cfg "%TMP_FILE%" /areas SECURITYPOLICY >nul 2>&1
 
-:: Check SAM file permissions
-PowerShell -Command "& {
-    $samPermissions = icacls '$env:systemroot\system32\config\SAM'
-    if ($samPermissions -notmatch 'Administrator|System') {
-        $status = 'WARN: Permissions for the SAM file are not properly restricted.'
-    } else {
-        $status = 'OK: SAM file permissions are properly set.'
-    }
-    \"$status\" | Out-File -FilePath temp.txt;
-}"
-set /p diagnosisResult=<temp.txt
-del temp.txt
+:: MaxClockSkew 값 찾기 (단위: 분)
+for /f "tokens=2 delims==" %%A in ('type "%TMP_FILE%" ^| findstr /i "MaxClockSkew"') do (
+    set "RAW_VAL=%%A"
+    :: 공백 제거
+    set "SKEW_VAL=!RAW_VAL: =!"
+)
 
-:: Save results to CSV
-echo "!category!","!code!","!riskLevel!","!diagnosisItem!","!service!","!diagnosisResult!","!status!" >> "!csvFile!"
+:: 임시 파일 삭제
+if exist "%TMP_FILE%" del "%TMP_FILE%"
 
-echo ------------------------------------------------ >> "!TMP1!"
-type "!TMP1!"
+:: 4. 판정 로직
+if "!SKEW_VAL!"=="" (
+    :: 정책이 명시되지 않은 경우 (보통 단독 서버는 5분이 기본값임)
+    set "RESULT=양호"
+    set "STATUS_MSG=Kerberos 정책이 설정되어 있지 않으나 기본값(5분)으로 동작 중입니다."
+) else (
+    if !SKEW_VAL! GTR 5 (
+        set "RESULT=취약"
+        set "STATUS_MSG=최대 허용 오차가 5분을 초과하여 설정되어 있습니다 (현재: !SKEW_VAL!분)"
+    ) else (
+        set "RESULT=양호"
+        set "STATUS_MSG=최대 허용 오차가 권고 기준(!SKEW_VAL!분) 내에 있습니다."
+    )
+)
 
-echo Audit complete. Results can be found in !resultDir!\SAM_File_Access_Status.csv.
+:: 5. 결과 출력 및 CSV 저장
+echo [결과] : %RESULT%
+echo [현황] : %STATUS_MSG%
+echo ------------------------------------------------
+
+echo "%CATEGORY%","%CODE%","%RISK%","%ITEM%","%RESULT%","%STATUS_MSG%","%ACTION%" >> "%FULL_PATH%"
+
 echo.
-
-ENDLOCAL
+echo 점검 완료! 결과가 저장되었습니다: %FULL_PATH%
 pause
