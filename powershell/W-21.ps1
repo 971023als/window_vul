@@ -1,59 +1,90 @@
-$json = @{
-        "분류": "서비스관리",
-        "코드": "W-21",
-        "위험도": "상",
-        "진단 항목": "불필요한 서비스 제거",
-        "진단 결과": "양호",  # 기본 값을 "양호"로 가정
-        "현황": [],
-        "대응방안": "불필요한 서비스 제거"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
+
+$csvFile = Join-Path $resultDir "FTP_Service_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-21"
+$riskLevel = "상"
+$diagnosisItem = "암호화되지 않는 FTP 서비스 비활성화"
+$remedialAction = "FTP 서비스 미사용 시 서비스 중지 및 '사용 안 함' 설정 (필요 시 SFTP/FTPS 도입)"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] FTP 서비스 구동 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 점검 대상 FTP 서비스 리스트
+# MSFTPSVC: 이전 버전, FTPSVC: IIS 7.0 이상 버전
+$ftpServices = @(
+    @{ Name = "MSFTPSVC"; Desc = "FTP Publishing Service" },
+    @{ Name = "FTPSVC"; Desc = "Microsoft FTP Service" }
+)
+
+# 4. 실제 점검 로직
+try {
+    $runningFtpServices = @()
+    $isInstalled = $false
+
+    foreach ($service in $ftpServices) {
+        $svcName = $service.Name
+        $svcDesc = $service.Desc
+        
+        # 서비스 정보 가져오기
+        $svcStatus = Get-Service -Name $svcName -ErrorAction SilentlyContinue
+        
+        if ($null -ne $svcStatus) {
+            $isInstalled = $true
+            # 시작 유형 확인
+            $startType = (Get-CimInstance Win32_Service -Filter "Name='$svcName'").StartMode
+            
+            # 서비스가 실행 중이거나 시작 유형이 비활성화가 아닌 경우 점검
+            if ($svcStatus.Status -eq "Running" -or $startType -ne "Disabled") {
+                $runningFtpServices += "$svcDesc($svcName): 상태($($svcStatus.Status))/시작유형($startType)"
+            }
+        }
     }
 
-# 관리자 권한 요청
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-if (-not $isAdmin) {
-    $script = "-File `"" + $MyInvocation.MyCommand.Definition + "`""
-    Start-Process PowerShell.exe -ArgumentList $script -Verb RunAs
-    Exit
-}
-
-# 콘솔 환경 설정 및 초기 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.ForegroundColor = "Green"
-
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-mkdir $rawDir, $resultDir | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-New-Item -Path "$rawDir\compare.txt" -ItemType File -Value $null
-Set-Location -Path $rawDir
-(Get-Location).Path | Out-File "$rawDir\install_path.txt"
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-
-# W-21 특정 서비스의 실행 상태 확인
-$servicesToCheck = @("Alerter", "ClipBook", "Messenger", "Simple TCP/IP Services")
-$servicesStatus = Get-Service | Where-Object { $servicesToCheck -contains $_.DisplayName } | Select-Object DisplayName, Status
-$servicesStatus | Out-File "$rawDir\W-21.txt"
-
-# Update the JSON object based on the service status check
-if ($servicesStatus) {
-    $json.현황 += "위험 상태: 시스템에 비활성화되어야 하는 서비스가 설치되어 있습니다."
-    $json.진단결과 = "취약"
-    $servicesStatus | ForEach-Object {
-        $json.현황 += "$($_.DisplayName) 서비스가 $($_.Status) 상태입니다."
+    # 5. 판정 로직
+    if (-not $isInstalled) {
+        $result = "양호"
+        $status = "시스템에 Windows 기본 FTP 서비스가 설치되어 있지 않습니다."
+        $color = "Green"
+    } elseif ($runningFtpServices.Count -gt 0) {
+        $result = "취약"
+        $status = "취약한 FTP 서비스가 구동 중이거나 활성화되어 있습니다: " + ($runningFtpServices -join ", ")
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $status = "FTP 서비스가 설치되어 있으나 모두 중지 및 비활성화 상태입니다."
+        $color = "Green"
     }
-} else {
-    $json.현황 += "정상 상태: 시스템에 비활성화되어야 하는 서비스가 설치되지 않았습니다."
-    $json.진단결과 = "양호"
+
+} catch {
+    $result = "오류"
+    $status = "서비스 정보를 가져오는 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# Save the JSON results to a file
-$jsonFilePath = "$resultDir\W-21.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+# 6. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $status
+    "Remedial Action"= $remedialAction
+}
 
+# 7. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $status"
+Write-Host "------------------------------------------------"
+
+# CSV 저장 (Append 모드)
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
+
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
