@@ -1,55 +1,70 @@
-# 변수 초기화
-$분류 = "계정 관리"
-$코드 = "W-29"
-$위험도 = "높음"
-$진단_항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-$진단_결과 = "양호"  # 기본 상태를 '양호'로 가정, 진단 후 상태 업데이트 예정
-$현황 = @()
-$대응방안 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용을 피하세요"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-$json = @{
-    분류 = $분류
-    코드 = $코드
-    위험도 = $위험도
-    진단_항목 = $진단_항목
-    진단_결과 = $진단_결과
-    현황 = $현황
-    대응방안 = $대응방안
+$csvFile = Join-Path $resultDir "SNMP_Service_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-29"
+$riskLevel = "중"
+$diagnosisItem = "불필요한 SNMP 서비스 구동 점검"
+$remedialAction = "SNMP 서비스 미사용 시 서비스 중지 및 '사용 안 함' 설정 (필요 시 Community String 강화)"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] SNMP 서비스 구동 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 실제 점검 로직
+try {
+    # 3-1. SNMP 서비스(SNMP) 정보 가져오기
+    $snmpSvc = Get-Service -Name "SNMP" -ErrorAction SilentlyContinue
+    
+    if ($null -eq $snmpSvc) {
+        $result = "양호"
+        $statusMsg = "시스템에 SNMP 서비스가 설치되어 있지 않습니다."
+        $color = "Green"
+    } else {
+        # 시작 유형 확인 (Get-CimInstance 사용)
+        $startType = (Get-CimInstance Win32_Service -Filter "Name='SNMP'").StartMode
+        $currentStatus = $snmpSvc.Status
+
+        # 3-2. 판정 로직
+        # 서비스가 실행 중이거나 시작 유형이 'Disabled'가 아닌 경우 (취약 후보)
+        if ($currentStatus -eq "Running" -or $startType -ne "Disabled") {
+            # 실제 현업에서는 NMS 사용 여부를 확인해야 하므로 '취약'으로 판정 후 검토 권고
+            $result = "취약"
+            $statusMsg = "SNMP 서비스가 활성화되어 있습니다. (상태: $currentStatus, 시작유형: $startType). 업무상 필요 여부를 확인하십시오."
+            $color = "Red"
+        } else {
+            $result = "양호"
+            $statusMsg = "SNMP 서비스가 설치되어 있으나 중지 및 비활성화(Disabled) 상태입니다."
+            $color = "Green"
+        }
+    }
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# 관리자 권한 요청
-$currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-File `"$PSCommandPath`"" -Verb RunAs
-    exit
+# 4. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
 }
 
-# 환경 설정 및 디렉터리 구성
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory
+# 5. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
 
-# 로컬 보안 정책 내보내기
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-New-Item -Path "$rawDir\compare.txt" -ItemType File
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-# 시스템 정보 저장
-systeminfo | Out-File "$rawDir\systeminfo.txt"
-
-# IIS 설정 분석
-$applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig | Out-File "$rawDir\iis_setting.txt"
-$applicationHostConfig | Select-String -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-(Get-Content "$rawDir\iis_path1.txt" -Raw) | Out-File "$rawDir\line.txt"
-
-# 분석을 위한 경로 추출
-1..5 | ForEach-Object {
-    $pathNumber = $_
-    (Get-Content "$rawDir\line.txt" -Raw) -split '\*' | Select-Object -Index ($pathNumber - 1) | Out-File "$rawDir\path$pathNumber.txt"
-}
-
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-29.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
