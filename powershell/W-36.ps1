@@ -1,73 +1,88 @@
-# 변수 초기화
-$분류 = "계정 관리"
-$코드 = "W-36"
-$위험도 = "높음"
-$진단_항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-$진단_결과 = "양호" # "양호"를 기본 값으로 가정
-$현황 = @()
-$대응방안 = "복호화 불가능한 암호화 방식 사용"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# JSON 키 한국어로 설정
-$auditParams = @{
-    분류 = $분류
-    코드 = $코드
-    위험도 = $위험도
-    진단_항목 = $진단_항목
-    진단_결과 = $진단_결과
-    현황 = $현황
-    대응방안 = $대응방안
+$csvFile = Join-Path $resultDir "RDP_Timeout_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-36"
+$riskLevel = "중"
+$diagnosisItem = "원격터미널 접속 타임아웃 설정"
+$remedialAction = "유휴 세션 제한 시간을 '30분' 이하로 설정 (그룹 정책 또는 레지스트리)"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] RDP 타임아웃 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 실제 점검 로직
+try {
+    # 3-1. RDP 활성화 여부 확인 (fDenyTSConnections: 0은 사용 중)
+    $tsPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
+    $isDenied = (Get-ItemProperty -Path $tsPath -Name "fDenyTSConnections" -ErrorAction SilentlyContinue).fDenyTSConnections
+
+    # 3-2. 타임아웃 설정값(MaxIdleTime) 확인
+    # 정책 우선순위: 그룹 정책(Policies) > 로컬 설정(WinStations)
+    $regPathPolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+    $regPathLocal = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
+    
+    $maxIdleTime = $null
+    
+    # 그룹 정책 확인
+    if (Test-Path $regPathPolicy) {
+        $maxIdleTime = (Get-ItemProperty -Path $regPathPolicy -Name "MaxIdleTime" -ErrorAction SilentlyContinue).MaxIdleTime
+    }
+    
+    # 그룹 정책에 없으면 로컬 설정 확인
+    if ($null -eq $maxIdleTime -and (Test-Path $regPathLocal)) {
+        $maxIdleTime = (Get-ItemProperty -Path $regPathLocal -Name "MaxIdleTime" -ErrorAction SilentlyContinue).MaxIdleTime
+    }
+
+    # 4. 판정 로직 (30분 = 1,800,000 ms)
+    $timeoutLimit = 1800000 
+
+    if ($isDenied -eq 1) {
+        $result = "양호"
+        $statusMsg = "원격 데스크톱 서비스가 비활성화 상태입니다."
+        $color = "Green"
+    } elseif ($null -eq $maxIdleTime -or $maxIdleTime -eq 0) {
+        $result = "취약"
+        $statusMsg = "유휴 세션 제한 시간이 설정되어 있지 않습니다. (무제한)"
+        $color = "Red"
+    } elseif ($maxIdleTime -gt $timeoutLimit) {
+        $min = $maxIdleTime / 60000
+        $result = "취약"
+        $statusMsg = "유휴 세션 제한 시간이 30분을 초과하여 설정되어 있습니다. (현재: $min 분)"
+        $color = "Red"
+    } else {
+        $min = $maxIdleTime / 60000
+        $result = "양호"
+        $statusMsg = "유휴 세션 제한 시간이 $min 분으로 적절히 설정되어 있습니다."
+        $color = "Green"
+    }
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# 관리자 권한 확인 및 요청
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    exit
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
 }
 
-# 콘솔 환경 설정
-function Setup-Console {
-    chcp 437 | Out-Null
-    $host.UI.RawUI.BackgroundColor = "DarkGreen"
-    $host.UI.RawUI.ForegroundColor = "Green"
-    Clear-Host
-    Write-Host "감사 환경을 초기화 중입니다..."
-}
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
 
-# 감사 환경 초기화
-function Initialize-AuditEnvironment {
-    $global:computerName = $env:COMPUTERNAME
-    $global:rawDir = "C:\Audit_${computerName}_Raw"
-    $global:resultDir = "C:\Audit_${computerName}_Results"
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-    Remove-Item $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item $rawDir, $resultDir -ItemType Directory | Out-Null
-    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-    systeminfo | Out-File "$rawDir\SystemInfo.txt"
-}
-
-# 보안 감사 실행 및 결과 업데이트
-function Perform-SecurityAudit {
-    Write-Host "보안 감사를 수행 중입니다..."
-    # 감사 로직 구현(예: NetBIOS 설정 검사)
-    # 이 예에서는 감사 결과를 직접 업데이트
-    $auditParams.진단_결과 = "취약" # 감사 후 결과 업데이트
-    $auditParams.현황 += "비밀번호 저장에 사용된 암호화가 복호화 가능합니다."
-}
-
-# 감사 결과 정리 및 보고
-function Finalize-Audit {
-    Write-Host "감사 완료. 결과는 $resultDir에서 확인하세요."
-    Remove-Item "$rawDir\*" -Force -ErrorAction SilentlyContinue
-}
-
-# 스크립트 실행
-Setup-Console
-Initialize-AuditEnvironment
-Perform-SecurityAudit
-Finalize-Audit
-
-# JSON 결과 파일 저장
-$jsonFilePath = "$resultDir\W-36.json"
-$auditParams | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
