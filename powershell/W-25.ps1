@@ -1,64 +1,90 @@
-# 진단 JSON 객체 초기화
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-25"
-    위험도 = "상"
-    진단 항목 = "암호를 저장하기 위한 복호화 가능한 암호화 사용"
-    진단 결과 = "양호"  # '양호'라고 가정
-    현황 = @()
-    대응방안 = "암호 저장을 위한 복호화 불가능한 암호화 사용"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
+
+$csvFile = Join-Path $resultDir "DNS_Zone_Transfer_Check.csv"
+
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-25"
+$riskLevel = "상"
+$diagnosisItem = "DNS Zone Transfer 설정"
+$remedialAction = "DNS 영역 전송을 '허용 안 함'으로 설정하거나, 승인된 특정 서버(IP)로만 제한"
+
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] DNS Zone Transfer 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+
+# 3. 실제 점검 로직
+try {
+    # DNS 서비스 존재 및 상태 확인
+    $dnsService = Get-Service -Name "DNS" -ErrorAction SilentlyContinue
+    
+    if ($null -eq $dnsService -or $dnsService.Status -ne "Running") {
+        $result = "양호"
+        $status = "DNS 서비스가 설치되어 있지 않거나 중지 상태입니다."
+        $color = "Green"
+    } else {
+        # DNS 서버 모듈 필요 (DNS 서버 역할이 설치된 경우 기본 제공)
+        if (!(Get-Command Get-DnsServerZone -ErrorAction SilentlyContinue)) {
+            $result = "오류"
+            $status = "DNS 관리 도구가 설치되어 있지 않아 상세 점검이 불가능합니다."
+            $color = "Yellow"
+        } else {
+            $zones = Get-DnsServerZone | Where-Object { $_.IsReverseLookupZone -eq $false -and $_.ZoneType -ne "Forwarder" }
+            $vulnerableZones = @()
+
+            foreach ($zone in $zones) {
+                # SecureSecondaries 값 분석
+                # 0: 모든 서버에 전송 허용 (취약)
+                # 1: 네임 서버(NS) 탭의 서버에만 허용 (양호/보통)
+                # 2: 지정된 IP 주소로만 허용 (양호)
+                # 3: 전송 허용 안 함 (양호)
+                
+                if ($zone.SecureSecondaries -eq "NoTransfer") {
+                    continue # 양호
+                } elseif ($zone.SecureSecondaries -eq "TransferAnyServer") {
+                    $vulnerableZones += "$($zone.ZoneName)(모든 서버 허용)"
+                } elseif ($zone.SecureSecondaries -eq "TransferNameServer" -or $zone.SecureSecondaries -eq "TransferSpecificHosts") {
+                    # 특정 서버 제한이므로 양호로 간주
+                    continue
+                }
+            }
+
+            if ($vulnerableZones.Count -gt 0) {
+                $result = "취약"
+                $status = "다음 영역에서 모든 서버에 대한 영역 전송이 허용되어 있습니다: " + ($vulnerableZones -join ", ")
+                $color = "Red"
+            } else {
+                $result = "양호"
+                $status = "모든 DNS 영역의 영역 전송 설정이 안전하게(제한됨 또는 허용 안 함) 구성되어 있습니다."
+                $color = "Green"
+            }
+        }
+    }
+} catch {
+    $result = "오류"
+    $status = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# 해당 JSON 구조는 계정 관리에 대한 보안 진단 결과를 저장하기 위해 사용됩니다.
-# '진단 항목'은 암호를 저장할 때 복호화 가능한 암호화 방식을 사용하는지 여부를 평가합니다.
-# '대응방안'은 보다 안전한 방법으로 암호를 저장하기 위해 복호화가 불가능한 암호화 기술을 사용할 것을 권장합니다.
-
-
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    "관리자 권한이 필요합니다. 스크립트를 다시 시작합니다."
-    Exit
+# 4. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $status
+    "Remedial Action"= $remedialAction
 }
 
-# 환경 및 초기 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.ForegroundColor = "Green"
-$computerName = $env:COMPUTERNAME
-$directories = @("C:\Window_$($computerName)_raw", "C:\Window_$($computerName)_result")
+# 5. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $status"
+Write-Host "------------------------------------------------"
 
-# 디렉터리 설정
-foreach ($dir in $directories) {
-    If (Test-Path $dir) { Remove-Item -Path $dir -Recurse -Force }
-    New-Item -Path $dir -ItemType Directory | Out-Null
-    "$dir 디렉터리를 생성하였습니다."
-}
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-# 시스템 정보 및 보안 정책 내보내기
-secedit /export /cfg "$($directories[0])\Local_Security_Policy.txt"
-(Get-Location).Path | Out-File "$($directories[0])\install_path.txt"
-systeminfo | Out-File "$($directories[0])\systeminfo.txt"
-"IIS 설정을 분석하고 있습니다."
-
-# IIS 구성 분석
-$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-$applicationHostConfig = Get-Content $applicationHostConfigPath
-$applicationHostConfig | Out-File "$($directories[0])\iis_setting.txt"
-$enableParentPaths = $applicationHostConfig | Select-String -Pattern "asp enableParentPaths"
-
-# 진단 결과 분석
-If (Get-Service W3SVC -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' } -and $enableParentPaths) {
-    $json.진단 결과 = "취약"
-    $json.현황 += "부모 경로 사용 설정이 활성화되어 있어 보안 위반."
-} Else {
-    $json.진단 결과 = "양호"
-    $json.현황 += If ($enableParentPaths) { "부모 경로 사용 설정이 활성화되어 있으나, IIS 서비스 비활성화 상태." } Else { "부모 경로 사용 설정이 비활성화되어 있어 보안 준수." }
-}
-
-# 결과 파일 저장
-$jsonFilePath = "$resultDir\W-25.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-"진단 결과가 저장되었습니다: $jsonFilePath"
-
-# 스크립트 종료 메시지
-"스크립트 실행 완료"
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
