@@ -1,59 +1,91 @@
-# 진단 결과를 위한 JSON 객체 정의
-$json = @{
-    분류 = "계정 관리"
-    코드 = "W-27"
-    위험도 = "높음"
-    진단항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-    진단결과 = "양호"  # 기본 상태를 '양호'로 가정
-    현황 = @()
-    대응방안 = "비밀번호 저장을 위한 복호화 불가능한 암호화 사용"
-}
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 이 JSON 구조는 계정 관리에 대한 보안 진단을 목적으로 합니다.
-# '진단항목'은 비밀번호 저장 시 복호화 가능한 암호화를 사용하는 문제를 평가합니다.
-# '대응방안'은 비밀번호를 보다 안전하게 저장하기 위해 복호화 불가능한 암호화 기술을 사용할 것을 권장합니다.
+$csvFile = Join-Path $resultDir "OS_Build_Version_Check.csv"
 
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-27"
+$riskLevel = "상"
+$diagnosisItem = "최신 Windows OS Build 버전 적용"
+$remedialAction = "Windows 업데이트를 통해 최신 보안 패치 및 빌드 적용 (자동 업데이트 권장)"
 
-# 관리자 권한 요청
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$PSCommandPath`"", "-Verb RunAs"
-    exit
-}
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 최신 OS 빌드 적용 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-# 환경 설정
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
-Remove-Item -Path $rawDir, $resultDir -Recurse -ErrorAction SilentlyContinue -Force
-New-Item -Path $rawDir, $resultDir -ItemType Directory -Force | Out-Null
-secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
-$null = New-Item -Path "$rawDir\compare.txt" -ItemType File
-Set-Location -Path $rawDir
-[System.IO.File]::WriteAllText("$rawDir\install_path.txt", (Get-Location).Path)
-systeminfo | Out-File "$rawDir\systeminfo.txt"
+# 3. 실제 점검 로직
+try {
+    # 3-1. OS 정보 및 빌드 번호 가져오기
+    $os = Get-CimInstance -ClassName Win32_OperatingSystem
+    $osName = $os.Caption
+    $buildNumber = $os.BuildNumber
+    $version = $os.Version
 
-# IIS 설정 분석
-$applicationHostConfigPath = "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-if (Test-Path $applicationHostConfigPath) {
-    Get-Content $applicationHostConfigPath | Out-File "$rawDir\iis_setting.txt"
-    Select-String -Path "$rawDir\iis_setting.txt" -Pattern "physicalPath|bindingInformation" | Out-File "$rawDir\iis_path1.txt"
-} else {
-    Write-Output "IIS configuration file not found."
-}
+    # 3-2. 마지막 업데이트 설치 날짜 확인 (Get-HotFix 활용)
+    # 가장 최근에 설치된 보안 업데이트(KB) 1개를 가져옴
+    $lastPatch = Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 1
+    
+    $isVulnerable = $false
+    $statusMsg = ""
 
-# IISADMIN 서비스 계정 검사
-$serviceStatus = Get-Service W3SVC -ErrorAction SilentlyContinue
-if ($serviceStatus.Status -eq 'Running') {
-    $iisAdminReg = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\IISADMIN" -Name "ObjectName" -ErrorAction SilentlyContinue
-    if ($iisAdminReg -and $iisAdminReg.ObjectName -ne "LocalSystem") {
-        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되지 않고 있습니다. 특별한 조치가 필요하지 않습니다."
-    } elseif ($iisAdminReg) {
-        $json.CurrentStatus += "IISADMIN 서비스가 LocalSystem 계정에서 실행되고 있습니다. 권장되지 않습니다."
+    if ($null -eq $lastPatch) {
+        $isVulnerable = $true
+        $statusMsg = "설치된 보안 업데이트 기록을 찾을 수 없습니다."
+    } else {
+        $lastPatchDate = $lastPatch.InstalledOn
+        $daysSinceLastPatch = ((Get-Date) - $lastPatchDate).Days
+        
+        # 판정 기준: 마지막 업데이트 이후 90일이 지났으면 취약으로 간주 (조직 정책에 따라 조정 가능)
+        if ($daysSinceLastPatch -gt 90) {
+            $isVulnerable = $true
+            $statusMsg = "마지막 보안 업데이트 이후 $daysSinceLastPatch일이 경과되었습니다. (최근 패치: $($lastPatch.HotFixID) / $lastPatchDate)"
+        } else {
+            $statusMsg = "현재 빌드: $buildNumber (최근 패치 날짜: $lastPatchDate, $($daysSinceLastPatch)일 경과)"
+        }
     }
-} else {
-    $json.CurrentStatus += "월드 와이드 웹 퍼블리싱 서비스가 실행되지 않고 있습니다. IIS 관련 보안 구성 검토가 필요 없습니다."
+
+    # 3-3. Windows Update 서비스 상태 확인
+    $wuaService = Get-Service -Name "wuauserv" -ErrorAction SilentlyContinue
+    if ($wuaService.StartType -eq "Disabled") {
+        $isVulnerable = $true
+        $statusMsg += " [경고: Windows Update 서비스가 비활성화 상태임]"
+    }
+
+    # 4. 최종 결과 판정
+    if ($isVulnerable) {
+        $result = "취약"
+        $color = "Red"
+    } else {
+        $result = "양호"
+        $statusMsg = "시스템이 비교적 최신 상태를 유지하고 있습니다. ($statusMsg)"
+        $color = "Green"
+    }
+
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-27.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = "OS: $osName / $statusMsg"
+    "Remedial Action"= $remedialAction
+}
+
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : OS: $osName / $statusMsg"
+Write-Host "------------------------------------------------"
+
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
+
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
