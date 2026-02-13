@@ -1,59 +1,94 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "로그관리"
-    코드 = "W-60"
-    위험도 = "상"
-    진단 항목 = "이벤트 로그 관리 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "이벤트 로그 관리 설정 조정"
-}
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"' -Verb RunAs" -Wait
-    exit
-}
+$csvFile = Join-Path $resultDir "Secure_Channel_Encryption_Check.csv"
 
-# 환경 설정 및 디렉터리 초기화
-$computerName = $env:COMPUTERNAME
-$rawDirectory = "C:\Window_${computerName}_raw"
-$resultDirectory = "C:\Window_${computerName}_result"
+# 2. 진단 정보 기본 설정
+$category = "보안 관리"
+$code = "W-60"
+$riskLevel = "중"
+$diagnosisItem = "보안 채널 데이터 디지털 암호화 또는 서명"
+$remedialAction = "보안 옵션 내 도메인 구성원 관련 보안 채널 암호화/서명 3개 항목을 모두 '사용'으로 설정"
 
-Remove-Item -Path $rawDirectory, $resultDirectory -Recurse -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $rawDirectory, $resultDirectory | Out-Null
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 보안 채널 데이터 암호화 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-# 이벤트 로그 설정 검사
-$eventLogKeys = @("Application", "Security", "System")
-$inadequateSettings = $False
+# 3. 실제 점검 로직
+try {
+    # 레지스트리 경로: HKLM\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters
+    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters"
+    
+    $isVulnerable = $false
+    $statusMsg = ""
 
-foreach ($key in $eventLogKeys) {
-    $path = "HKLM:\SYSTEM\CurrentControlSet\Services\Eventlog\$key"
-    $maxSize = (Get-ItemProperty -Path $path -Name "MaxSize").MaxSize
-    $retention = (Get-ItemProperty -Path $path -Name "Retention").Retention
-    If ($maxSize -lt 10485760 -or $retention -eq 0) {
-        $inadequateSettings = $True
-        $json.현황 += "$key log is inadequately configured with MaxSize: $maxSize bytes and Retention: $retention."
+    if (Test-Path $regPath) {
+        $regValues = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+        
+        # 3-1. 정책별 레지스트리 값 매핑
+        # 1: 항상 암호화 또는 서명 (RequireSignOrSeal)
+        # 2: 가능한 경우 암호화 (SealSecureChannel)
+        # 3: 가능한 경우 서명 (SignSecureChannel)
+        
+        $requireSignOrSeal = $regValues.RequireSignOrSeal
+        $sealSecureChannel = $regValues.SealSecureChannel
+        $signSecureChannel = $regValues.SignSecureChannel
+
+        $details = @()
+
+        # 4. 판정 로직 (모두 1이어야 양호)
+        if ($requireSignOrSeal -ne 1) { 
+            $isVulnerable = $true 
+            $details += "암호화 또는 서명(항상): 미사용"
+        }
+        if ($sealSecureChannel -ne 1) { 
+            $isVulnerable = $true 
+            $details += "디지털 암호화(가능한 경우): 미사용"
+        }
+        if ($signSecureChannel -ne 1) { 
+            $isVulnerable = $true 
+            $details += "디지털 서명(가능한 경우): 미사용"
+        }
+
+        if ($isVulnerable) {
+            $result = "취약"
+            $statusMsg = "다음 정책이 설정되어 있지 않습니다: " + ($details -join ", ")
+            $color = "Red"
+        } else {
+            $result = "양호"
+            $statusMsg = "모든 보안 채널 암호화 및 서명 정책이 '사용'으로 설정되어 있습니다."
+            $color = "Green"
+        }
+    } else {
+        $result = "오류"
+        $statusMsg = "Netlogon 레지스트리 경로를 찾을 수 없습니다."
+        $color = "Yellow"
     }
+
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-If ($inadequateSettings) {
-    $json.진단 결과 = "취약"
-} else {
-    $json.현황 += "All event logs are adequately configured."
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
 }
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDirectory\W-60.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
 
-# 결과 요약 및 저장
-Get-Content -Path $jsonFilePath | Out-File -FilePath "$resultDirectory\security_audit_summary.txt"
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-Write-Host "Results have been saved to $resultDirectory\security_audit_summary.txt."
-
-# 정리 작업
-Remove-Item -Path "$rawDirectory\*" -Force
-
-Write-Host "Script has completed."
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
