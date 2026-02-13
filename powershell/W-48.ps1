@@ -1,62 +1,79 @@
-# JSON 데이터 초기화
-$json = @{
-    분류 = "계정관리"
-    코드 = "W-48"
-    위험도 = "상"
-    진단 항목 = "SNMP Access control 설정"
-    진단 결과 = "양호"  # 기본 값을 "양호"로 가정
-    현황 = @()
-    대응방안 = "SNMP Access control 설정"
-}
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 관리자 권한 확인 및 요청
-If (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", $PSCommandPath, "-Verb", "RunAs"
-    Exit
-}
+$csvFile = Join-Path $resultDir "Shutdown_Without_Logon_Check.csv"
 
-# 콘솔 환경 설정
-chcp 437 | Out-Null
-$host.UI.RawUI.BackgroundColor = "DarkGreen"
-$host.UI.RawUI.ForegroundColor = "Green"
-Clear-Host
+# 2. 진단 정보 기본 설정
+$category = "보안 관리"
+$code = "W-48"
+$riskLevel = "상"
+$diagnosisItem = "로그온하지 않고 시스템 종료 허용"
+$remedialAction = "보안 옵션에서 '시스템 종료: 로그온하지 않고 시스템 종료 허용'을 '사용 안 함'으로 설정"
 
-Write-Host "------------------------------------------설정 시작---------------------------------------"
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] 로그온 전 종료 허용 여부 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-# 이전 디렉토리 삭제 및 새 디렉토리 생성
-Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
+# 3. 실제 점검 로직
+try {
+    # 레지스트리 경로 (로컬 보안 정책 반영 경로)
+    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+    $valueName = "shutdownwithoutlogon"
+    
+    $isVulnerable = $false
+    $statusMsg = ""
 
-# SNMP 허용된 관리자 설정 검사
-Write-Host "------------------------------------------W-48 SNMP 허용된 관리자 설정 검사------------------------------------------"
-$snmpService = Get-Service -Name SNMP -ErrorAction SilentlyContinue
-if ($snmpService.Status -eq "Running") {
-    $permittedManagers = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SNMP\Parameters\PermittedManagers" -ErrorAction SilentlyContinue
-    if ($permittedManagers -and $permittedManagers.PSObject.Properties.Value) {
-        $json.진단 결과 = "양호"
-        $json.현황 += "SNMP 서비스가 실행 중이며 허용된 관리자가 구성되어 있습니다. 해당 설정은 네트워크 보안을 강화하는 데 도움이 됩니다."
+    # 레지스트리 값 존재 여부 확인
+    if (Test-Path $regPath) {
+        $regValue = (Get-ItemProperty -Path $regPath -Name $valueName -ErrorAction SilentlyContinue).$valueName
+        
+        # 4. 판정 로직
+        # 0: 사용 안 함 (양호), 1: 사용 (취약)
+        if ($null -eq $regValue) {
+            # 기본값 확인: Windows Server 버전은 기본적으로 이 값이 0(사용 안 함)임
+            $result = "양호"
+            $statusMsg = "레지스트리 값이 명시되어 있지 않으나, 서버 기본값(사용 안 함)으로 동작 중입니다."
+            $color = "Green"
+        } elseif ($regValue -eq 1) {
+            $isVulnerable = $true
+            $result = "취약"
+            $statusMsg = "로그온하지 않고 시스템 종료 허용이 '사용(1)'으로 설정되어 있습니다."
+            $color = "Red"
+        } else {
+            $result = "양호"
+            $statusMsg = "로그온하지 않고 시스템 종료 허용이 '사용 안 함(0)'으로 적절히 설정되어 있습니다."
+            $color = "Green"
+        }
     } else {
-        $json.진단 결과 = "경고"
-        $json.현황 += "SNMP 서비스가 실행 중이지만 허용된 관리자가 명확하게 구성되지 않았습니다. SNMP 관리를 위한 보안 조치로 허용된 관리자를 명확하게 설정하는 것이 권장됩니다."
+        $result = "오류"
+        $statusMsg = "해당 레지스트리 경로를 찾을 수 없습니다."
+        $color = "Yellow"
     }
-} else {
-    $json.현황 += "SNMP 서비스가 실행되지 않고 있습니다."
+
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
-Write-Host "-------------------------------------------진단 종료------------------------------------------"
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-48.json"
-$json | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+# 5. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
+}
 
-# 결과 요약
-Write-Host "결과 요약이 $jsonFilePath에 저장되었습니다."  # Corrected the summary path
+# 6. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
 
-# 정리 작업
-Write-Host "정리 작업을 수행합니다..."
-Remove-Item "$rawDir\*" -Force
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
 
-Write-Host "스크립트를 종료합니다."
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
