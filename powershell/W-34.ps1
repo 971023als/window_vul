@@ -1,65 +1,80 @@
-# 변수 초기화
-$분류 = "계정 관리"
-$코드 = "W-34"
-$위험도 = "높음"
-$진단_항목 = "비밀번호 저장을 위한 복호화 가능한 암호화 사용"
-$진단_결과 = "양호"  # 기본 상태를 '양호'로 가정
-$현황 = @()
-$대응방안 = "비암호화 방식을 사용하여 비밀번호 저장을 방지하세요"
+# 1. 초기 설정 및 결과 폴더 생성
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$resultDir = Join-Path $scriptPath "result"
+if (-not (Test-Path $resultDir)) { New-Item -ItemType Directory -Path $resultDir | Out-Null }
 
-# 진단 결과 및 JSON 키 값 한국어로 설정
-$auditParams = @{
-    분류 = $분류
-    코드 = $코드
-    위험도 = $위험도
-    진단_항목 = $진단_항목
-    진단_결과 = $진단_결과
-    현황 = $현황
-    대응방안 = $대응방안
-}
+$csvFile = Join-Path $resultDir "Telnet_Service_Check.csv"
 
-# 관리자 권한 요청
-if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process PowerShell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "`"$PSCommandPath`"", "-Verb", "RunAs"
-    exit
-}
+# 2. 진단 정보 기본 설정
+$category = "서비스 관리"
+$code = "W-34"
+$riskLevel = "중"
+$diagnosisItem = "Telnet 서비스 비활성화"
+$remedialAction = "Telnet 서비스 중지 및 '사용 안 함' 설정 (필요 시 NTLM 인증만 허용)"
 
-# 환경 설정 및 디렉터리 구성
-$computerName = $env:COMPUTERNAME
-$rawDir = "C:\Window_${computerName}_raw"
-$resultDir = "C:\Window_${computerName}_result"
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
+Write-Host "CODE [$code] Telnet 서비스 점검 시작" -ForegroundColor Cyan
+Write-Host "------------------------------------------------" -ForegroundColor Cyan
 
-function Initialize-Environment {
-    Write-Host "환경을 설정하고 있습니다..."
-    Remove-Item -Path $rawDir, $resultDir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -Path $rawDir, $resultDir -ItemType Directory | Out-Null
-
-    secedit /export /cfg "$rawDir\Local_Security_Policy.txt" | Out-Null
-    New-Item -Path "$rawDir\compare.txt" -ItemType File | Out-Null
-
-    systeminfo | Out-File -FilePath "$rawDir\systeminfo.txt"
-}
-
-# IIS 설정 분석 및 결과 업데이트
-function Analyze-IISConfiguration {
-    Write-Host "IIS 설정을 분석하고 있습니다..."
-    $applicationHostConfig = Get-Content "$env:WinDir\System32\Inetsrv\Config\applicationHost.Config"
-    $applicationHostConfig | Out-File -FilePath "$rawDir\iis_setting.txt"
-
-    if ($applicationHostConfig -match "physicalPath|bindingInformation") {
-        $auditParams.현황 += "암호화 설정에 문제가 있습니다."
-        $auditParams.진단_결과 = "취약"
+# 3. 실제 점검 로직
+try {
+    # 3-1. Telnet 서비스(TlntSvr) 존재 및 상태 확인
+    $telnetSvc = Get-Service -Name "TlntSvr" -ErrorAction SilentlyContinue
+    
+    if ($null -eq $telnetSvc -or $telnetSvc.Status -ne "Running") {
+        $result = "양호"
+        $statusMsg = "Telnet 서비스가 설치되어 있지 않거나 중지 상태입니다."
+        $color = "Green"
     } else {
-        $auditParams.현황 += "암호화 설정이 양호합니다."
+        # 3-2. 서비스가 구동 중인 경우 인증 방식 확인 (Windows 2012 이하)
+        # Registry: HKLM\SOFTWARE\Microsoft\TelnetServer\1.0\Security
+        $regPath = "HKLM:\SOFTWARE\Microsoft\TelnetServer\1.0\Security"
+        
+        if (Test-Path $regPath) {
+            # NTLM 값 확인 (1: 사용, 0: 미사용)
+            $ntlmAuth = (Get-ItemProperty -Path $regPath -Name "NTLM" -ErrorAction SilentlyContinue).NTLM
+            
+            # Passwd 값 확인 (암호 인증 사용 여부 - 1: 허용, 0: 거부)
+            $passwdAuth = (Get-ItemProperty -Path $regPath -Name "Passwd" -ErrorAction SilentlyContinue).Passwd
+
+            if ($ntlmAuth -eq 1 -and ($null -eq $passwdAuth -or $passwdAuth -eq 0)) {
+                $result = "양호"
+                $statusMsg = "Telnet 서비스가 구동 중이나 NTLM 인증만 사용하도록 안전하게 설정되어 있습니다."
+                $color = "Green"
+            } else {
+                $result = "취약"
+                $statusMsg = "Telnet 서비스가 구동 중이며 취약한 암호 인증(Password)이 활성화되어 있습니다."
+                $color = "Red"
+            }
+        } else {
+            # 레지스트리 설정이 확인되지 않는 경우 (기본적으로 취약으로 간주)
+            $result = "취약"
+            $statusMsg = "Telnet 서비스가 구동 중이나 보안 설정(NTLM 강제)을 확인할 수 없습니다."
+            $color = "Red"
+        }
     }
+} catch {
+    $result = "오류"
+    $statusMsg = "점검 중 에러 발생: $($_.Exception.Message)"
+    $color = "Yellow"
 }
 
-# 스크립트 실행 단계
-Initialize-Environment
-Analyze-IISConfiguration
+# 4. 결과 객체 생성
+$report = [PSCustomObject]@{
+    "Category"       = $category
+    "Code"           = $code
+    "Risk Level"     = $riskLevel
+    "Diagnosis Item" = $diagnosisItem
+    "Result"         = $result
+    "Current Status" = $statusMsg
+    "Remedial Action"= $remedialAction
+}
 
-# JSON 결과를 파일에 저장
-$jsonFilePath = "$resultDir\W-34.json"
-$auditParams | ConvertTo-Json -Depth 3 | Out-File -FilePath $jsonFilePath
+# 5. 콘솔 출력 및 CSV 저장
+Write-Host "[결과] : $result" -ForegroundColor $color
+Write-Host "[현황] : $statusMsg"
+Write-Host "------------------------------------------------"
 
-Write-Host "진단 결과가 저장되었습니다: $jsonFilePath"
+$report | Export-Csv -Path $csvFile -NoTypeInformation -Encoding UTF8 -Append
+
+Write-Host "`n점검 완료! 결과가 저장되었습니다: $csvFile" -ForegroundColor Gray
