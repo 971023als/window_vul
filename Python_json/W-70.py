@@ -30,8 +30,15 @@ def analyze_security_policy(file_path):
     with open(file_path, 'r', encoding='utf-16') as file:
         settings = file.read()
 
-    allocate_dasd = "AllocateDASD" in settings and "=0" in settings
-    return not allocate_dasd  # Return True if vulnerable
+    # 대상 키 행의 실제 값 확인 (AllocateDASD는 REG_SZ(1)로 내보내지며, "0"=Administrators만 허용이 권고값)
+    dasd_key = r'MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\AllocateDASD'
+    dasd_values = []
+    for line in settings.splitlines():
+        key, sep, rest = line.partition('=')
+        if sep and key.strip().upper() == dasd_key.upper():
+            dasd_values.append(rest.strip())
+    # 대상 키가 정확히 한 번 REG_SZ "0"으로 내보내졌을 때만 양호
+    return dasd_values != ['1,"0"']  # Return True if vulnerable
 
 def main():
     if not check_admin_rights():
