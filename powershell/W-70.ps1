@@ -25,10 +25,20 @@ New-Item -ItemType Directory -Path $rawDir, $resultDir -Force | Out-Null
 # 로컬 보안 정책 내보내기 및 분석
 secedit /export /cfg "$rawDir\Local_Security_Policy.txt"
 $localSecurityPolicy = Get-Content "$rawDir\Local_Security_Policy.txt"
-$allocateDASD = $localSecurityPolicy | Where-Object { $_ -match "AllocateDASD" -and $_ -notmatch "0" }
+# 대상 키 행의 실제 값 확인 (AllocateDASD는 REG_SZ(1)로 내보내지며, "0"=Administrators만 허용이 권고값)
+$dasdKey = 'MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\AllocateDASD'
+$dasdValues = @()
+foreach ($line in $localSecurityPolicy) {
+    $idx = $line.IndexOf('=')
+    if ($idx -ge 0 -and $line.Substring(0, $idx).Trim() -ieq $dasdKey) {
+        $dasdValues += $line.Substring($idx + 1).Trim()
+    }
+}
+# 대상 키가 정확히 한 번 REG_SZ "0"으로 내보내졌을 때만 양호
+$isSecure = ($dasdValues.Count -eq 1 -and $dasdValues[0] -ieq '1,"0"')
 
 # 분석 결과에 따라 JSON 업데이트
-if ($allocateDASD) {
+if ($isSecure) {
     $json.Status += "디스크 할당 권한 변경은 관리자만 제한적으로 변경할 수 있습니다."
 } else {
     $json.DiagnosticResult = "취약"
